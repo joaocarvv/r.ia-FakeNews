@@ -70,6 +70,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger("fatofake")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
 ''')
 
 md(r'''
@@ -84,8 +86,8 @@ code(r'''
 class Config:
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     nli_model: str = os.getenv("NLI_MODEL", "cross-encoder/nli-deberta-v3-xsmall")
-    llm_model: str = os.getenv("LLM_MODEL", "gemini-2.5-flash")
-    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    llm_model: str = os.getenv("LLM_MODEL", "gemini-flash-lite-latest")
+    gemini_api_key: str = field(default=os.getenv("GEMINI_API_KEY", ""), repr=False)
     ncbi_api_key: str = os.getenv("NCBI_API_KEY", "")
     ncbi_email: str = os.getenv("NCBI_EMAIL", "")
     max_sources: int = int(os.getenv("MAX_SOURCES", "8"))
@@ -158,23 +160,29 @@ DEMO_PUBMED_QUERIES = {
 def call_gemini_json(prompt: str, schema: Optional[dict] = None) -> dict[str, Any]:
     if not CFG.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY não configurada")
-    from google import genai
-    from google.genai import types
-    client = genai.Client(api_key=CFG.gemini_api_key)
-    kwargs: dict[str, Any] = {"response_mime_type": "application/json", "temperature": 0}
-    if schema:
-        kwargs["response_json_schema"] = schema
-    response = client.models.generate_content(
-        model=CFG.llm_model,
-        contents=prompt,
-        config=types.GenerateContentConfig(**kwargs),
+    generation_config: dict[str, Any] = {"responseMimeType": "application/json", "temperature": 0}
+    if schema: generation_config["responseSchema"] = schema
+    response = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{CFG.llm_model}:generateContent",
+        headers={"Content-Type": "application/json", "X-goog-api-key": CFG.gemini_api_key},
+        json={"contents": [{"parts": [{"text": prompt}]}], "generationConfig": generation_config},
+        timeout=CFG.llm_timeout,
     )
-    if not response.text:
+    response.raise_for_status()
+    payload = response.json()
+    parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+    text = "".join(str(part.get("text", "")) for part in parts)
+    if not text:
         raise RuntimeError("Gemini retornou resposta vazia")
-    return json.loads(response.text)
+    return json.loads(text)
 
 def analisar_claim(claim: str) -> ClaimAnalysis:
     normalized = re.sub(r"[?.!]+$", "", claim.strip())
+    plain = _strip_accents(normalized.lower())
+    english_claim = CLAIM_TRANSLATIONS.get(plain, normalized)
+    if plain in DEMO_PUBMED_QUERIES:
+        entities = [term for pt, term in QUERY_TERMS.items() if pt in plain]
+        return ClaimAnalysis(claim, english_claim, "health", entities, DEMO_PUBMED_QUERIES[plain])
     if CFG.gemini_api_key:
         prompt = f"""Analise a claim abaixo. Gere 2 a 3 consultas curtas em inglês para PubMed.
 Responda somente JSON com original_claim, normalized_claim, topic, entities e search_queries.
@@ -187,11 +195,6 @@ Não avalie se a claim é verdadeira. Claim: {claim}"""
                                      str(data.get("topic", "general")), list(data.get("entities", [])), queries)
         except Exception as exc:
             logger.warning("Claim Analyzer via Gemini indisponível: %s", exc)
-    plain = _strip_accents(normalized.lower())
-    english_claim = CLAIM_TRANSLATIONS.get(plain, normalized)
-    if plain in DEMO_PUBMED_QUERIES:
-        entities = [term for pt, term in QUERY_TERMS.items() if pt in plain]
-        return ClaimAnalysis(claim, english_claim, "health", entities, DEMO_PUBMED_QUERIES[plain])
     translated = plain
     found = []
     for pt, en in sorted(QUERY_TERMS.items(), key=lambda item: -len(item[0])):
@@ -479,6 +482,32 @@ Claim: {claim}\nTrecho: {chunk.text}\nResponda JSON: stance (SUPPORT, CONTRADICT
     return Evidence(chunk.id, chunk.title, chunk.source, chunk.url, chunk.text, stance, justification,
                     round(max(0.0, min(1.0, relevance)), 4), chunk.document_id,
                     chunk.independence_group, chunk.is_primary, classifier)
+
+def classificar_evidencias(claim: str, ranked: list[tuple[Chunk, float]]) -> list[Evidence]:
+    if not CFG.gemini_api_key:
+        return [classificar_evidencia(claim, item) for item in ranked]
+    payload = [{"id": chunk.id, "excerpt": chunk.text} for chunk, _ in ranked]
+    prompt = f"""Classifique cada trecho em relação à claim usando SOMENTE o texto fornecido.
+Não use conhecimento externo. SUPPORT significa que o trecho sustenta a claim; CONTRADICT, que apresenta
+evidência contrária; NEUTRAL, que não permite nenhuma dessas conclusões. Preserve cada id.
+Claim: {claim}\nTrechos: {json.dumps(payload, ensure_ascii=False)}
+Responda JSON no formato {{"evidence": [{{"id": "...", "stance": "SUPPORT|CONTRADICT|NEUTRAL", "justification": "..."}}]}}."""
+    try:
+        rows = call_gemini_json(prompt).get("evidence", [])
+        by_id = {str(row.get("id")): row for row in rows}
+        evidence = []
+        for chunk, relevance in ranked:
+            row = by_id.get(chunk.id, {})
+            stance = str(row.get("stance", "NEUTRAL")).upper()
+            if stance not in {"SUPPORT", "CONTRADICT", "NEUTRAL"}: stance = "NEUTRAL"
+            evidence.append(Evidence(chunk.id, chunk.title, chunk.source, chunk.url, chunk.text, stance,
+                                     str(row.get("justification", "Classificação ausente na resposta.")),
+                                     round(max(0.0, min(1.0, relevance)), 4), chunk.document_id,
+                                     chunk.independence_group, chunk.is_primary, CFG.llm_model))
+        return evidence
+    except Exception as exc:
+        logger.error("Classificação em lote via Gemini falhou; usando NLI local: %s", exc)
+        return [classificar_evidencia(claim, item) for item in ranked]
 ''')
 
 md(r'''
@@ -558,8 +587,8 @@ def verificar_claim(claim: str) -> dict[str, Any]:
     if chunks:
         index = InMemoryIndex(chunks)
         embedding_backend = index.backend
-        evidence = [classificar_evidencia(analysis.normalized_claim, item)
-                    for item in hybrid_search(analysis.normalized_claim, chunks, index, CFG.top_k)]
+        ranked = hybrid_search(analysis.normalized_claim, chunks, index, CFG.top_k)
+        evidence = classificar_evidencias(analysis.normalized_claim, ranked)
     aggregation = aggregate_evidence(evidence)
     summary, synthesizer = sintetizar(claim, evidence, aggregation)
     metrics = {"documents_retrieved": len(raw_docs), "documents_discarded": discarded,
