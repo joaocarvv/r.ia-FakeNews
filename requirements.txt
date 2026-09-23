@@ -6,6 +6,7 @@ jupyterlab>=4.2,<5
 numpy>=1.26,<3
 scikit-learn>=1.5,<2
 requests>=2.32,<3
+truststore>=0.10,<1
 matplotlib>=3.9,<4
 networkx>=3.3,<4
 python-dotenv>=1.0,<2
