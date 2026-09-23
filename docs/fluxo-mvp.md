@@ -13,7 +13,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/01_validacao_entrada.ipynb`](../notebooks/01_validacao_entrada.ipynb).
 
-**Próxima etapa:** preparar a alegação para busca científica.
+**Etapa concluída:** preparação da alegação para busca científica.
+
+**Comprovação:** [`notebooks/02_validacao_plano_busca.ipynb`](../notebooks/02_validacao_plano_busca.ipynb).
+
+**Próxima etapa:** consultar o PubMed e normalizar os artigos encontrados.
 
 ## Fluxo
 
