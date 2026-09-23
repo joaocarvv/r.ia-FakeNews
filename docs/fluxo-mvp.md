@@ -33,7 +33,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/06_validacao_chunking.ipynb`](../notebooks/06_validacao_chunking.ipynb).
 
-**Próxima etapa:** recuperar e ordenar os trechos mais relevantes para a alegação.
+**Etapa concluída:** recuperar e ordenar lexicalmente os trechos mais relevantes para a alegação.
+
+**Comprovação:** [`notebooks/07_validacao_recuperacao_lexical.ipynb`](../notebooks/07_validacao_recuperacao_lexical.ipynb).
+
+**Próxima etapa:** adicionar recuperação semântica e compará-la com a linha de base lexical antes de combinar os métodos.
 
 ## Fluxo
 

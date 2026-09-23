@@ -37,10 +37,19 @@ from .pubmed import (
     QueryResult,
     search_pubmed,
 )
+from .retrieval import (
+    Bm25Config,
+    Bm25Index,
+    RetrievalError,
+    RetrievedChunk,
+    tokenize,
+)
 
 __all__ = [
     "AnalysisInput",
     "ArticleContent",
+    "Bm25Config",
+    "Bm25Index",
     "ChunkingConfig",
     "ChunkingError",
     "ContentRetrievalError",
@@ -59,12 +68,15 @@ __all__ = [
     "PubMedSearchResult",
     "QueryPlanner",
     "QueryResult",
+    "RetrievalError",
+    "RetrievedChunk",
     "SearchPlan",
     "SearchPreparationError",
     "prepare_search_plan",
     "chunk_article_content",
     "retrieve_article_content",
     "search_pubmed",
+    "tokenize",
     "validate_analysis_input",
     "verify_publication_identity",
     "verify_publications",
