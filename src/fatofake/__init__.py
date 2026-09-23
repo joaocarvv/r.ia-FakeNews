@@ -1,5 +1,11 @@
 """Núcleo da aplicação Fato ou Fake."""
 
+from .chunking import (
+    ChunkingConfig,
+    ChunkingError,
+    EvidenceChunk,
+    chunk_article_content,
+)
 from .crossref import (
     CrossrefClient,
     CrossrefError,
@@ -35,12 +41,15 @@ from .pubmed import (
 __all__ = [
     "AnalysisInput",
     "ArticleContent",
+    "ChunkingConfig",
+    "ChunkingError",
     "ContentRetrievalError",
     "ContentSection",
     "CrossrefClient",
     "CrossrefError",
     "CrossrefNotFoundError",
     "CrossrefWork",
+    "EvidenceChunk",
     "IdentityVerification",
     "InputValidationError",
     "PmcClient",
@@ -53,6 +62,7 @@ __all__ = [
     "SearchPlan",
     "SearchPreparationError",
     "prepare_search_plan",
+    "chunk_article_content",
     "retrieve_article_content",
     "search_pubmed",
     "validate_analysis_input",

@@ -29,7 +29,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/05_validacao_conteudo_pmc.ipynb`](../notebooks/05_validacao_conteudo_pmc.ipynb).
 
-**Próxima etapa:** dividir o conteúdo em trechos rastreáveis para recuperação de evidências.
+**Etapa concluída:** dividir o conteúdo em trechos rastreáveis para recuperação de evidências.
+
+**Comprovação:** [`notebooks/06_validacao_chunking.ipynb`](../notebooks/06_validacao_chunking.ipynb).
+
+**Próxima etapa:** recuperar e ordenar os trechos mais relevantes para a alegação.
 
 ## Fluxo
 
