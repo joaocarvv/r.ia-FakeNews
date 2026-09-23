@@ -1,5 +1,14 @@
 """Núcleo da aplicação Fato ou Fake."""
 
+from .crossref import (
+    CrossrefClient,
+    CrossrefError,
+    CrossrefNotFoundError,
+    CrossrefWork,
+    IdentityVerification,
+    verify_publication_identity,
+    verify_publications,
+)
 from .input_validation import AnalysisInput, InputValidationError, validate_analysis_input
 from .search_preparation import (
     QueryPlanner,
@@ -18,6 +27,11 @@ from .pubmed import (
 
 __all__ = [
     "AnalysisInput",
+    "CrossrefClient",
+    "CrossrefError",
+    "CrossrefNotFoundError",
+    "CrossrefWork",
+    "IdentityVerification",
     "InputValidationError",
     "Publication",
     "PubMedClient",
@@ -30,4 +44,6 @@ __all__ = [
     "prepare_search_plan",
     "search_pubmed",
     "validate_analysis_input",
+    "verify_publication_identity",
+    "verify_publications",
 ]

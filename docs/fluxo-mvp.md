@@ -21,7 +21,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/03_validacao_pubmed.ipynb`](../notebooks/03_validacao_pubmed.ipynb).
 
-**Próxima etapa:** conferir a identidade dos artigos por DOI e metadados externos.
+**Etapa concluída:** conferir a identidade dos artigos por DOI e metadados externos.
+
+**Comprovação:** [`notebooks/04_validacao_identidade_crossref.ipynb`](../notebooks/04_validacao_identidade_crossref.ipynb).
+
+**Próxima etapa:** obter resumo e texto completo disponível no PubMed Central.
 
 ## Fluxo
 
