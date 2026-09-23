@@ -16,6 +16,13 @@ from .crossref import (
     verify_publications,
 )
 from .input_validation import AnalysisInput, InputValidationError, validate_analysis_input
+from .hybrid_retrieval import (
+    HybridConfig,
+    HybridIndex,
+    HybridRetrievedChunk,
+    RankedResult,
+    RetrievalIndex,
+)
 from .pmc import (
     ArticleContent,
     ContentRetrievalError,
@@ -68,6 +75,9 @@ __all__ = [
     "DEFAULT_EMBEDDING_MODEL",
     "EmbeddingEncoder",
     "EvidenceChunk",
+    "HybridConfig",
+    "HybridIndex",
+    "HybridRetrievedChunk",
     "IdentityVerification",
     "InputValidationError",
     "PmcClient",
@@ -77,8 +87,10 @@ __all__ = [
     "PubMedSearchResult",
     "QueryPlanner",
     "QueryResult",
+    "RankedResult",
     "RetrievalError",
     "RetrievedChunk",
+    "RetrievalIndex",
     "SearchPlan",
     "SearchPreparationError",
     "SemanticIndex",

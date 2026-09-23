@@ -41,7 +41,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/08_validacao_recuperacao_semantica.ipynb`](../notebooks/08_validacao_recuperacao_semantica.ipynb).
 
-**Próxima etapa:** fundir BM25 e embeddings em um ranking híbrido com escalas comparáveis.
+**Etapa concluída:** combinar BM25 e embeddings em um ranking híbrido por posições, sem somar scores incompatíveis.
+
+**Comprovação:** [`notebooks/09_validacao_ranking_hibrido.ipynb`](../notebooks/09_validacao_ranking_hibrido.ipynb).
+
+**Próxima etapa:** extrair afirmações verificáveis dos trechos recuperados e estruturar a comparação com a alegação do usuário.
 
 ## Fluxo
 
