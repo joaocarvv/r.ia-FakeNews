@@ -37,7 +37,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/07_validacao_recuperacao_lexical.ipynb`](../notebooks/07_validacao_recuperacao_lexical.ipynb).
 
-**Próxima etapa:** adicionar recuperação semântica e compará-la com a linha de base lexical antes de combinar os métodos.
+**Etapa concluída:** recuperar semanticamente trechos em inglês a partir de uma alegação em português e comparar a seleção com a linha de base lexical.
+
+**Comprovação:** [`notebooks/08_validacao_recuperacao_semantica.ipynb`](../notebooks/08_validacao_recuperacao_semantica.ipynb).
+
+**Próxima etapa:** fundir BM25 e embeddings em um ranking híbrido com escalas comparáveis.
 
 ## Fluxo
 

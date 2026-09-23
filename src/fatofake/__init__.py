@@ -29,6 +29,13 @@ from .search_preparation import (
     SearchPreparationError,
     prepare_search_plan,
 )
+from .semantic_retrieval import (
+    DEFAULT_EMBEDDING_MODEL,
+    EmbeddingEncoder,
+    SemanticIndex,
+    SemanticRetrievedChunk,
+    SentenceTransformerEncoder,
+)
 from .pubmed import (
     Publication,
     PubMedClient,
@@ -58,6 +65,8 @@ __all__ = [
     "CrossrefError",
     "CrossrefNotFoundError",
     "CrossrefWork",
+    "DEFAULT_EMBEDDING_MODEL",
+    "EmbeddingEncoder",
     "EvidenceChunk",
     "IdentityVerification",
     "InputValidationError",
@@ -72,6 +81,9 @@ __all__ = [
     "RetrievedChunk",
     "SearchPlan",
     "SearchPreparationError",
+    "SemanticIndex",
+    "SemanticRetrievedChunk",
+    "SentenceTransformerEncoder",
     "prepare_search_plan",
     "chunk_article_content",
     "retrieve_article_content",
