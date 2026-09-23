@@ -1,5 +1,7 @@
 # Fato ou Fake? — POC orientada a evidências
 
+O fluxo principal definido para o MVP está documentado em [`docs/fluxo-mvp.md`](docs/fluxo-mvp.md).
+
 Jupyter Notebook executável para verificar afirmações pelo cruzamento de fontes reais. O pipeline analisa a claim, consulta o PubMed, normaliza e deduplica documentos, cria chunks, executa busca híbrida, classifica as evidências e gera uma síntese com as fontes utilizadas.
 
 A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou falso. O resultado descreve o conjunto recuperado como `EVIDENCE_SUPPORTS`, `EVIDENCE_AGAINST`, `INCONCLUSIVE` ou `CONFLICTING_EVIDENCE`.
