@@ -25,7 +25,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/04_validacao_identidade_crossref.ipynb`](../notebooks/04_validacao_identidade_crossref.ipynb).
 
-**Próxima etapa:** obter resumo e texto completo disponível no PubMed Central.
+**Etapa concluída:** obter resumo e texto completo disponível no PubMed Central.
+
+**Comprovação:** [`notebooks/05_validacao_conteudo_pmc.ipynb`](../notebooks/05_validacao_conteudo_pmc.ipynb).
+
+**Próxima etapa:** dividir o conteúdo em trechos rastreáveis para recuperação de evidências.
 
 ## Fluxo
 

@@ -10,6 +10,13 @@ from .crossref import (
     verify_publications,
 )
 from .input_validation import AnalysisInput, InputValidationError, validate_analysis_input
+from .pmc import (
+    ArticleContent,
+    ContentRetrievalError,
+    ContentSection,
+    PmcClient,
+    retrieve_article_content,
+)
 from .search_preparation import (
     QueryPlanner,
     SearchPlan,
@@ -27,12 +34,16 @@ from .pubmed import (
 
 __all__ = [
     "AnalysisInput",
+    "ArticleContent",
+    "ContentRetrievalError",
+    "ContentSection",
     "CrossrefClient",
     "CrossrefError",
     "CrossrefNotFoundError",
     "CrossrefWork",
     "IdentityVerification",
     "InputValidationError",
+    "PmcClient",
     "Publication",
     "PubMedClient",
     "PubMedError",
@@ -42,6 +53,7 @@ __all__ = [
     "SearchPlan",
     "SearchPreparationError",
     "prepare_search_plan",
+    "retrieve_article_content",
     "search_pubmed",
     "validate_analysis_input",
     "verify_publication_identity",
