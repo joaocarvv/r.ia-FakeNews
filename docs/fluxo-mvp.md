@@ -65,7 +65,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/14_validacao_amstar2.ipynb`](../notebooks/14_validacao_amstar2.ipynb).
 
-**Próxima etapa:** incorporar o perfil metodológico avaliado à síntese e gerar uma resposta explicável ao usuário, separando sinal, confiança e limitações.
+**Etapa concluída:** incorporar o perfil metodológico avaliado à síntese e gerar uma resposta explicável ao usuário, separando sinal, força da evidência, confiança metodológica, limitações e fontes.
+
+**Comprovação:** [`notebooks/15_validacao_resposta_explicavel.ipynb`](../notebooks/15_validacao_resposta_explicavel.ipynb).
+
+**Próxima etapa:** encapsular o fluxo completo em um serviço de aplicação que receba a entrada validada e devolva o relatório estruturado.
 
 ## Fluxo
 

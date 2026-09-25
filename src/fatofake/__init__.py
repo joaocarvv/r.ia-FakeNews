@@ -111,6 +111,15 @@ from .retrieval import (
     RetrievedChunk,
     tokenize,
 )
+from .report_generation import (
+    EvidenceReport,
+    MethodologySummary,
+    ReportConclusion,
+    ReportSource,
+    generate_evidence_report,
+    methodology_summary_from_amstar,
+    render_evidence_report_markdown,
+)
 
 __all__ = [
     "AMSTAR2_ITEMS",
@@ -148,6 +157,7 @@ __all__ = [
     "EvidenceStrength",
     "ExternalServiceError",
     "EvidenceAssessment",
+    "EvidenceReport",
     "ClassificationConfig",
     "ExtractionConfig",
     "EvidenceChunk",
@@ -157,6 +167,7 @@ __all__ = [
     "IdentityVerification",
     "InputValidationError",
     "NliClassifier",
+    "MethodologySummary",
     "PmcClient",
     "ClinicalTrialsClient",
     "Publication",
@@ -173,6 +184,8 @@ __all__ = [
     "RetrievalIndex",
     "RelationLabel",
     "RelationProbabilities",
+    "ReportConclusion",
+    "ReportSource",
     "SearchPlan",
     "SearchPreparationError",
     "SemanticIndex",
@@ -198,5 +211,8 @@ __all__ = [
     "verify_publication_identity",
     "verify_publications",
     "extract_evidence_statements",
+    "generate_evidence_report",
+    "methodology_summary_from_amstar",
+    "render_evidence_report_markdown",
     "detect_study_design",
 ]
