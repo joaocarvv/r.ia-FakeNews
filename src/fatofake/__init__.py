@@ -15,6 +15,13 @@ from .crossref import (
     verify_publication_identity,
     verify_publications,
 )
+from .evidence_extraction import (
+    ClaimEvidencePair,
+    EvidenceStatement,
+    ExtractionConfig,
+    build_claim_evidence_pairs,
+    extract_evidence_statements,
+)
 from .input_validation import AnalysisInput, InputValidationError, validate_analysis_input
 from .hybrid_retrieval import (
     HybridConfig,
@@ -66,6 +73,7 @@ __all__ = [
     "Bm25Index",
     "ChunkingConfig",
     "ChunkingError",
+    "ClaimEvidencePair",
     "ContentRetrievalError",
     "ContentSection",
     "CrossrefClient",
@@ -74,6 +82,8 @@ __all__ = [
     "CrossrefWork",
     "DEFAULT_EMBEDDING_MODEL",
     "EmbeddingEncoder",
+    "EvidenceStatement",
+    "ExtractionConfig",
     "EvidenceChunk",
     "HybridConfig",
     "HybridIndex",
@@ -97,6 +107,7 @@ __all__ = [
     "SemanticRetrievedChunk",
     "SentenceTransformerEncoder",
     "prepare_search_plan",
+    "build_claim_evidence_pairs",
     "chunk_article_content",
     "retrieve_article_content",
     "search_pubmed",
@@ -104,4 +115,5 @@ __all__ = [
     "validate_analysis_input",
     "verify_publication_identity",
     "verify_publications",
+    "extract_evidence_statements",
 ]

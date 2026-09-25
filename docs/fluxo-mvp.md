@@ -45,7 +45,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/09_validacao_ranking_hibrido.ipynb`](../notebooks/09_validacao_ranking_hibrido.ipynb).
 
-**Próxima etapa:** extrair afirmações verificáveis dos trechos recuperados e estruturar a comparação com a alegação do usuário.
+**Etapa concluída:** extrair afirmações científicas rastreáveis e estruturar pares de comparação ainda não classificados.
+
+**Comprovação:** [`notebooks/10_validacao_extracao_evidencias.ipynb`](../notebooks/10_validacao_extracao_evidencias.ipynb).
+
+**Próxima etapa:** classificar cada par como apoio, contradição ou evidência neutra, mantendo incerteza e justificativa.
 
 ## Fluxo
 
