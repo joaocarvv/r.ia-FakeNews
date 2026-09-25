@@ -71,6 +71,31 @@ class CrossrefTests(unittest.TestCase):
         self.assertEqual(fetcher.calls[0][1], {"mailto": "team@example.org"})
         self.assertIn("mailto:team@example.org", fetcher.calls[0][2]["User-Agent"])
 
+    def test_normalizes_retraction_updates(self) -> None:
+        response = {
+            **CROSSREF_RESPONSE,
+            "message": {
+                **CROSSREF_RESPONSE["message"],
+                "updated-by": [
+                    {
+                        "type": "retraction",
+                        "label": "Retraction",
+                        "source": "retraction-watch",
+                        "DOI": "10.1000/retraction",
+                        "record-id": 42,
+                    }
+                ],
+            },
+        }
+
+        work = CrossrefClient(fetch_json=RecordingFetcher(response)).fetch_work(
+            "10.1136/bmjopen-2020-038902"
+        )
+
+        self.assertEqual(work.updates[0].update_type, "retraction")
+        self.assertEqual(work.updates[0].source, "retraction-watch")
+        self.assertEqual(work.updates[0].record_id, "42")
+
     def test_verifies_matching_doi_and_title(self) -> None:
         client = CrossrefClient(fetch_json=RecordingFetcher(CROSSREF_RESPONSE))
 

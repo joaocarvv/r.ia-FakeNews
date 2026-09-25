@@ -57,7 +57,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/12_validacao_sintese_evidencias.ipynb`](../notebooks/12_validacao_sintese_evidencias.ipynb).
 
-**Próxima etapa:** enriquecer os perfis de qualidade com validações externas de retratação, protocolo, desenho do estudo e disponibilidade dos dados.
+**Etapa concluída:** enriquecer os perfis de qualidade com validações externas de identidade, retratação, protocolo aplicável, desenho declarado e disponibilidade de dados.
+
+**Comprovação:** [`notebooks/13_validacao_qualidade_artigo.ipynb`](../notebooks/13_validacao_qualidade_artigo.ipynb).
+
+**Próxima etapa:** aplicar um instrumento de risco de viés apropriado ao desenho do estudo antes de graduar a qualidade acima de `UNCLEAR`.
 
 ## Fluxo
 

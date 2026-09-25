@@ -33,6 +33,17 @@ class CrossrefNotFoundError(CrossrefError):
 
 
 @dataclass(frozen=True)
+class CrossrefUpdate:
+    """Atualização editorial ligada ao registro, incluindo retratações."""
+
+    update_type: str
+    label: str | None
+    source: str | None
+    doi: str | None
+    record_id: str | None
+
+
+@dataclass(frozen=True)
 class CrossrefWork:
     """Metadados externos normalizados de uma obra registrada."""
 
@@ -44,6 +55,7 @@ class CrossrefWork:
     publication_date: str | None
     work_type: str | None
     url: str
+    updates: tuple[CrossrefUpdate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -61,6 +73,33 @@ class IdentityVerification:
     crossref_publisher: str | None
     crossref_publication_date: str | None
     reason: str
+    crossref_updates: tuple[CrossrefUpdate, ...] = ()
+
+
+def _updates(message: Mapping[str, Any]) -> tuple[CrossrefUpdate, ...]:
+    normalized: list[CrossrefUpdate] = []
+    seen: set[tuple[str, str | None, str | None]] = set()
+    for field in ("updated-by", "update-to"):
+        for item in message.get(field) or []:
+            update_type = str(item.get("type") or "").strip().casefold()
+            if not update_type:
+                continue
+            doi = str(item["DOI"]).strip() if item.get("DOI") else None
+            source = str(item["source"]).strip() if item.get("source") else None
+            key = (update_type, doi, source)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(
+                CrossrefUpdate(
+                    update_type=update_type,
+                    label=str(item["label"]).strip() if item.get("label") else None,
+                    source=source,
+                    doi=doi,
+                    record_id=str(item["record-id"]) if item.get("record-id") else None,
+                )
+            )
+    return tuple(normalized)
 
 
 def _first_text(value: Any) -> str | None:
@@ -183,6 +222,7 @@ class CrossrefClient:
             publication_date=_publication_date(message),
             work_type=str(message["type"]).strip() if message.get("type") else None,
             url=str(message.get("URL") or f"https://doi.org/{returned_doi}").strip(),
+            updates=_updates(message),
         )
 
 
@@ -243,6 +283,7 @@ def verify_publication_identity(
             if verified
             else "Os metadados apresentam diferença que requer revisão."
         ),
+        crossref_updates=work.updates,
     )
 
 
