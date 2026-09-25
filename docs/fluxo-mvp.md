@@ -49,7 +49,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/10_validacao_extracao_evidencias.ipynb`](../notebooks/10_validacao_extracao_evidencias.ipynb).
 
-**Próxima etapa:** classificar cada par como apoio, contradição ou evidência neutra, mantendo incerteza e justificativa.
+**Etapa concluída:** classificar cada par como apoio, contradição, evidência neutra ou incerta, preservando probabilidades, modelo, justificativa e proveniência.
+
+**Comprovação:** [`notebooks/11_validacao_classificacao_relacoes.ipynb`](../notebooks/11_validacao_classificacao_relacoes.ipynb).
+
+**Próxima etapa:** agregar as avaliações por artigo e pela qualidade da evidência, explicitando conflitos antes de produzir uma conclusão.
 
 ## Fluxo
 
