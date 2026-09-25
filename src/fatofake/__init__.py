@@ -1,5 +1,17 @@
 """Núcleo da aplicação Fato ou Fake."""
 
+from .amstar2 import (
+    AMSTAR2_ITEMS,
+    AMSTAR2_SOURCE_URL,
+    AmstarAssessment,
+    AmstarConfidence,
+    AmstarItem,
+    AmstarJudgment,
+    AmstarRating,
+    assess_amstar2,
+    quality_profile_from_amstar,
+)
+
 from .chunking import (
     ChunkingConfig,
     ChunkingError,
@@ -101,7 +113,14 @@ from .retrieval import (
 )
 
 __all__ = [
+    "AMSTAR2_ITEMS",
+    "AMSTAR2_SOURCE_URL",
     "AnalysisInput",
+    "AmstarAssessment",
+    "AmstarConfidence",
+    "AmstarItem",
+    "AmstarJudgment",
+    "AmstarRating",
     "ArticleContent",
     "ArticleQualityProfile",
     "ArticleQualityReport",
@@ -164,12 +183,14 @@ __all__ = [
     "TrialRegistration",
     "TransformersNliClassifier",
     "prepare_search_plan",
+    "quality_profile_from_amstar",
     "build_claim_evidence_pairs",
     "classify_claim_evidence_pairs",
     "chunk_article_content",
     "retrieve_article_content",
     "search_pubmed",
     "synthesize_evidence",
+    "assess_amstar2",
     "tokenize",
     "validate_analysis_input",
     "validate_article_quality",

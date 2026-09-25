@@ -61,7 +61,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/13_validacao_qualidade_artigo.ipynb`](../notebooks/13_validacao_qualidade_artigo.ipynb).
 
-**Próxima etapa:** aplicar um instrumento de risco de viés apropriado ao desenho do estudo antes de graduar a qualidade acima de `UNCLEAR`.
+**Etapa concluída:** aplicar o AMSTAR 2 à revisão sistemática, registrando evidência por item e derivando a confiança por falhas críticas, sem escore numérico.
+
+**Comprovação:** [`notebooks/14_validacao_amstar2.ipynb`](../notebooks/14_validacao_amstar2.ipynb).
+
+**Próxima etapa:** incorporar o perfil metodológico avaliado à síntese e gerar uma resposta explicável ao usuário, separando sinal, confiança e limitações.
 
 ## Fluxo
 
