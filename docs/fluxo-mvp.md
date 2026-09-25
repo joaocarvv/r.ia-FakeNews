@@ -53,7 +53,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/11_validacao_classificacao_relacoes.ipynb`](../notebooks/11_validacao_classificacao_relacoes.ipynb).
 
-**Próxima etapa:** agregar as avaliações por artigo e pela qualidade da evidência, explicitando conflitos antes de produzir uma conclusão.
+**Etapa concluída:** agregar primeiro por artigo e depois entre artigos, ponderando perfis explícitos de qualidade e preservando conflitos e insuficiência de evidência.
+
+**Comprovação:** [`notebooks/12_validacao_sintese_evidencias.ipynb`](../notebooks/12_validacao_sintese_evidencias.ipynb).
+
+**Próxima etapa:** enriquecer os perfis de qualidade com validações externas de retratação, protocolo, desenho do estudo e disponibilidade dos dados.
 
 ## Fluxo
 

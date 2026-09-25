@@ -32,6 +32,16 @@ from .evidence_classification import (
     TransformersNliClassifier,
     classify_claim_evidence_pairs,
 )
+from .evidence_synthesis import (
+    ArticleQualityProfile,
+    ArticleSynthesis,
+    CorpusSynthesis,
+    EvidenceDirection,
+    EvidenceStrength,
+    QualityLevel,
+    SynthesisConfig,
+    synthesize_evidence,
+)
 from .input_validation import AnalysisInput, InputValidationError, validate_analysis_input
 from .hybrid_retrieval import (
     HybridConfig,
@@ -79,6 +89,8 @@ from .retrieval import (
 __all__ = [
     "AnalysisInput",
     "ArticleContent",
+    "ArticleQualityProfile",
+    "ArticleSynthesis",
     "Bm25Config",
     "Bm25Index",
     "ChunkingConfig",
@@ -90,10 +102,13 @@ __all__ = [
     "CrossrefError",
     "CrossrefNotFoundError",
     "CrossrefWork",
+    "CorpusSynthesis",
     "DEFAULT_NLI_MODEL",
     "DEFAULT_EMBEDDING_MODEL",
     "EmbeddingEncoder",
     "EvidenceStatement",
+    "EvidenceDirection",
+    "EvidenceStrength",
     "EvidenceAssessment",
     "ClassificationConfig",
     "ExtractionConfig",
@@ -111,6 +126,7 @@ __all__ = [
     "PubMedSearchResult",
     "QueryPlanner",
     "QueryResult",
+    "QualityLevel",
     "RankedResult",
     "RetrievalError",
     "RetrievedChunk",
@@ -122,6 +138,7 @@ __all__ = [
     "SemanticIndex",
     "SemanticRetrievedChunk",
     "SentenceTransformerEncoder",
+    "SynthesisConfig",
     "TransformersNliClassifier",
     "prepare_search_plan",
     "build_claim_evidence_pairs",
@@ -129,6 +146,7 @@ __all__ = [
     "chunk_article_content",
     "retrieve_article_content",
     "search_pubmed",
+    "synthesize_evidence",
     "tokenize",
     "validate_analysis_input",
     "verify_publication_identity",
