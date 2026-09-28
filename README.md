@@ -9,6 +9,7 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 ## Arquivos principais
 
 - `fato_ou_fake_poc.ipynb`: notebook completo e salvo com uma execução de exemplo.
+- `notebooks/17_validacao_orquestracao_multiartigo.ipynb`: validação do serviço que parte da alegação, processa múltiplos artigos e gera o relatório final.
 - `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
 - `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
 - `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.

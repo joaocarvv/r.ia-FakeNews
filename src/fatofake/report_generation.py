@@ -98,6 +98,7 @@ _CONFIDENCE_LABELS = {
     "MODERATE": "moderada",
     "LOW": "baixa",
     "CRITICALLY_LOW": "criticamente baixa",
+    "UNCLEAR": "não esclarecida",
 }
 
 _QUALITY_LABELS = {
@@ -131,7 +132,7 @@ def methodology_summary_from_amstar(
 def _conclusion_for(synthesis: CorpusSynthesis) -> ReportConclusion:
     if synthesis.strength is EvidenceStrength.INSUFFICIENT:
         return ReportConclusion.INSUFFICIENT_EVIDENCE
-    if synthesis.has_conflict or synthesis.direction is EvidenceDirection.MIXED:
+    if synthesis.has_conflict:
         return ReportConclusion.CONFLICTING_EVIDENCE
     if synthesis.direction is EvidenceDirection.SUPPORTS:
         return ReportConclusion.COMPATIBLE_WITH_EVIDENCE

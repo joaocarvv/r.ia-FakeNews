@@ -1,5 +1,16 @@
 """Núcleo da aplicação Fato ou Fake."""
 
+from .analysis_service import (
+    AnalysisServiceError,
+    ArticleAnalysisFailure,
+    ArticleEvidenceBundle,
+    ArticleProcessingError,
+    MultiArticleAnalysis,
+    MultiArticleAnalysisConfig,
+    MultiArticleAnalysisService,
+    ScientificArticleProcessor,
+)
+
 from .amstar2 import (
     AMSTAR2_ITEMS,
     AMSTAR2_SOURCE_URL,
@@ -125,12 +136,16 @@ __all__ = [
     "AMSTAR2_ITEMS",
     "AMSTAR2_SOURCE_URL",
     "AnalysisInput",
+    "AnalysisServiceError",
     "AmstarAssessment",
     "AmstarConfidence",
     "AmstarItem",
     "AmstarJudgment",
     "AmstarRating",
     "ArticleContent",
+    "ArticleAnalysisFailure",
+    "ArticleEvidenceBundle",
+    "ArticleProcessingError",
     "ArticleQualityProfile",
     "ArticleQualityReport",
     "ArticleSynthesis",
@@ -168,6 +183,9 @@ __all__ = [
     "InputValidationError",
     "NliClassifier",
     "MethodologySummary",
+    "MultiArticleAnalysis",
+    "MultiArticleAnalysisConfig",
+    "MultiArticleAnalysisService",
     "PmcClient",
     "ClinicalTrialsClient",
     "Publication",
@@ -190,6 +208,7 @@ __all__ = [
     "SearchPreparationError",
     "SemanticIndex",
     "SemanticRetrievedChunk",
+    "ScientificArticleProcessor",
     "SentenceTransformerEncoder",
     "SynthesisConfig",
     "StudyDesign",

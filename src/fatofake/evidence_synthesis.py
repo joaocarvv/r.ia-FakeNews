@@ -273,6 +273,11 @@ def synthesize_evidence(
         )
     elif has_conflict:
         rationale = "Foram encontrados sinais conflitantes; o conflito foi preservado."
+    elif direction is EvidenceDirection.MIXED:
+        rationale = (
+            "As probabilidades agregadas ficaram próximas demais para indicar uma "
+            "direção clara, sem conflito explícito entre artigos."
+        )
     elif strength is EvidenceStrength.MODERATE:
         rationale = (
             "Artigos independentes apontam na mesma direção e possuem qualidade "

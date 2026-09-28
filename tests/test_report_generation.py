@@ -100,6 +100,7 @@ class ReportGenerationTests(unittest.TestCase):
                 ReportConclusion.INCOMPATIBLE_WITH_EVIDENCE,
             ),
             (EvidenceDirection.NEUTRAL, False, ReportConclusion.INCONCLUSIVE),
+            (EvidenceDirection.MIXED, False, ReportConclusion.INCONCLUSIVE),
             (EvidenceDirection.MIXED, True, ReportConclusion.CONFLICTING_EVIDENCE),
         )
         for direction, conflict, expected in cases:

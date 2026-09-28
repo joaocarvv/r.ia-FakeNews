@@ -69,7 +69,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/15_validacao_resposta_explicavel.ipynb`](../notebooks/15_validacao_resposta_explicavel.ipynb).
 
-**Próxima etapa:** encapsular o fluxo completo em um serviço de aplicação que receba a entrada validada e devolva o relatório estruturado.
+**Etapa concluída:** encapsular o fluxo em um serviço de aplicação que busque e processe múltiplos artigos independentes, tolere falhas isoladas e devolva o relatório estruturado.
+
+**Comprovação:** [`notebooks/17_validacao_orquestracao_multiartigo.ipynb`](../notebooks/17_validacao_orquestracao_multiartigo.ipynb).
+
+**Próxima etapa:** expor o serviço por uma API HTTP e definir o contrato de entrada, progresso e resposta para a interface.
 
 ## Fluxo
 
