@@ -73,7 +73,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/17_validacao_orquestracao_multiartigo.ipynb`](../notebooks/17_validacao_orquestracao_multiartigo.ipynb).
 
-**Próxima etapa:** expor o serviço por uma API HTTP e definir o contrato de entrada, progresso e resposta para a interface.
+**Etapa concluída:** expor o serviço por uma API HTTP assíncrona, com contrato de entrada, consulta de progresso, resultado estruturado e erros seguros.
+
+**Comprovação:** [`notebooks/18_validacao_api_http.ipynb`](../notebooks/18_validacao_api_http.ipynb).
+
+**Próxima etapa:** construir uma interface mínima que envie a alegação, acompanhe o processamento e apresente conclusão, limitações e fontes.
 
 ## Fluxo
 
