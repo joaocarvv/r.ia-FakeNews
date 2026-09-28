@@ -9,6 +9,9 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 ## Arquivos principais
 
 - `fato_ou_fake_poc.ipynb`: notebook completo e salvo com uma execução de exemplo.
+- `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
+- `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
+- `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.
 - `build_notebook.py`: gerador reproduzível do notebook.
 - `.env.example`: modelo das variáveis de ambiente.
 - `requirements.txt`: dependências principais.
