@@ -114,6 +114,14 @@ from .search_preparation import (
     SearchPreparationError,
     prepare_search_plan,
 )
+from .source_audit import (
+    AcademicSourceAuditor,
+    SourceAuditConfig,
+    SourceAuditReport,
+    SourceAuditResult,
+    SourceProbeStatus,
+    SourceRole,
+)
 from .semantic_retrieval import (
     DEFAULT_EMBEDDING_MODEL,
     EmbeddingEncoder,
@@ -160,6 +168,7 @@ __all__ = [
     "AmstarItem",
     "AmstarJudgment",
     "AmstarRating",
+    "AcademicSourceAuditor",
     "ArticleContent",
     "ArticleAnalysisFailure",
     "ArticleEvidenceBundle",
@@ -232,6 +241,11 @@ __all__ = [
     "ReviewStatus",
     "SearchPlan",
     "SearchPreparationError",
+    "SourceAuditConfig",
+    "SourceAuditReport",
+    "SourceAuditResult",
+    "SourceProbeStatus",
+    "SourceRole",
     "SemanticIndex",
     "SemanticRetrievedChunk",
     "ScientificArticleProcessor",

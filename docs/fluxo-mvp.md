@@ -87,7 +87,13 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 Essa etapa valida regras de software com agentes controlados; não representa validação clínica nem demonstra que uma IA possa validar outra IA.
 
-**Próxima etapa:** implementar adaptadores reais e versionados para os agentes e construir um conjunto prata baseado em revisões, diretrizes e casos de retratação, medindo recuperação, correção das citações, abstenção e falsa segurança.
+**Etapa concluída:** auditar todas as fontes sugeridas pelo grupo, separando descoberta, conteúdo, validação, plataformas editoriais e conferência manual. O teste ao vivo confirmou acesso a PubMed, PMC, ClinicalTrials.gov, Crossref/Retraction Watch, OpenAlex, DataCite e ao catálogo SciELO; Springer Nature e ScienceDirect exigem credenciais próprias.
+
+**Comprovação:** [`notebooks/21_validacao_fontes_cientificas.ipynb`](../notebooks/21_validacao_fontes_cientificas.ipynb).
+
+Nature não é contada como índice independente, e Google Acadêmico permanece fora da automação por não possuir uma API pública suportada no projeto. A disponibilidade de uma fonte não comprova cobertura, relevância nem qualidade científica.
+
+**Próxima etapa:** implementar a busca federada em PubMed, OpenAlex e SciELO, normalizando e deduplicando os resultados por DOI, PMID e metadados antes do ranking. Depois, integrar adaptadores reais e versionados para os agentes e construir o conjunto prata.
 
 ## Fluxo
 
