@@ -89,7 +89,7 @@ class ReportGenerationTests(unittest.TestCase):
         )
 
         self.assertEqual(report.conclusion, ReportConclusion.INSUFFICIENT_EVIDENCE)
-        self.assertIn("apenas 1 artigo", report.limitations[0])
+        self.assertIn("Apenas 1 artigo", report.limitations[0])
 
     def test_maps_sufficient_directions_and_conflict(self):
         cases = (

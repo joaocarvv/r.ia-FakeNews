@@ -20,11 +20,13 @@ from fatofake import (
     MultiArticleAnalysisService,
     Publication,
     QualityLevel,
+    QualityCheck,
     RelationLabel,
     RelationProbabilities,
     ReportConclusion,
     ScientificArticleProcessor,
     StudyDesign,
+    ValidationStatus,
 )
 
 
@@ -93,7 +95,7 @@ def assessment(pmid, relation=RelationLabel.SUPPORTS):
     )
 
 
-def bundle(pmid, relation=RelationLabel.SUPPORTS):
+def bundle(pmid, relation=RelationLabel.SUPPORTS, *, retracted=False):
     item = publication(pmid)
     content = ArticleContent(
         pmid=pmid,
@@ -111,7 +113,22 @@ def bundle(pmid, relation=RelationLabel.SUPPORTS):
         doi=item.doi,
         study_design=StudyDesign.OBSERVATIONAL,
         quality_level=QualityLevel.UNCLEAR,
-        checks=(),
+        checks=(
+            QualityCheck(
+                name="retraction",
+                status=(
+                    ValidationStatus.CONFIRMED
+                    if retracted
+                    else ValidationStatus.NOT_FOUND
+                ),
+                summary=(
+                    "Retratação confirmada."
+                    if retracted
+                    else "Nenhuma retratação localizada."
+                ),
+                source_url=f"https://doi.org/10.1000/{pmid}",
+            ),
+        ),
         datasets=(),
         trial_registrations=(),
         rationale="Preliminary external checks.",
@@ -215,6 +232,26 @@ class MultiArticleAnalysisServiceTests(unittest.TestCase):
                 for limitation in result.report.limitations
             )
         )
+
+    def test_excludes_retracted_article_and_continues_to_next_candidate(self):
+        publications = [publication("1"), publication("2"), publication("3")]
+        processor = ProcessorStub(
+            [bundle("1", retracted=True), bundle("2"), bundle("3")]
+        )
+        result = self.service(
+            publications,
+            processor,
+            max_results_per_query=3,
+            target_articles=2,
+            minimum_successful_articles=2,
+        ).analyze("Beber café pode alterar o risco de câncer de próstata.")
+
+        self.assertEqual(
+            [item.publication.pmid for item in result.articles],
+            ["2", "3"],
+        )
+        self.assertEqual(result.failures[0].stage, "eligibility")
+        self.assertIn("retratação confirmada", result.failures[0].reason.lower())
 
     def test_rejects_when_minimum_cannot_be_reached(self):
         publications = [publication("1"), publication("2")]

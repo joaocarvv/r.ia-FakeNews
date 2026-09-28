@@ -291,6 +291,7 @@ def serialize_multi_article_analysis(
                 "quality": {
                     "study_design": item.quality_report.study_design.value,
                     "level": item.quality_report.quality_level.value,
+                    "is_retracted": item.quality_report.is_retracted,
                     "rationale": item.quality_report.rationale,
                     "checks": [
                         {
@@ -340,6 +341,10 @@ def serialize_multi_article_analysis(
             "direction": analysis.synthesis.direction.value,
             "strength": analysis.synthesis.strength.value,
             "article_count": analysis.synthesis.article_count,
+            "usable_article_count": sum(
+                article.uncertain_count < article.assessment_count
+                for article in analysis.synthesis.articles
+            ),
             "has_conflict": analysis.synthesis.has_conflict,
             "probabilities": {
                 "support": analysis.synthesis.support_probability,
@@ -352,6 +357,9 @@ def serialize_multi_article_analysis(
                     "pmid": article.pmid,
                     "direction": article.direction.value,
                     "assessment_count": article.assessment_count,
+                    "usable_assessment_count": (
+                        article.assessment_count - article.uncertain_count
+                    ),
                     "uncertain_count": article.uncertain_count,
                     "has_internal_conflict": article.has_internal_conflict,
                     "quality_level": article.quality.level.value,

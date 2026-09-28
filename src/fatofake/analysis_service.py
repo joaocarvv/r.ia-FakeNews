@@ -271,6 +271,19 @@ class MultiArticleAnalysisService:
                 raise AnalysisServiceError(
                     "O processador retornou resultados de outro artigo."
                 )
+            if bundle.quality_report.is_retracted:
+                failures.append(
+                    ArticleAnalysisFailure(
+                        pmid=publication.pmid,
+                        title=publication.title,
+                        stage="eligibility",
+                        reason=(
+                            "Artigo com retratação confirmada; excluído da síntese "
+                            "científica."
+                        ),
+                    )
+                )
+                continue
             articles.append(bundle)
 
         if len(articles) < self.config.minimum_successful_articles:

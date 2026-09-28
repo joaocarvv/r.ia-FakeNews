@@ -67,6 +67,47 @@ def quality(pmid: str, level: QualityLevel = QualityLevel.MODERATE):
 
 
 class EvidenceSynthesisTests(unittest.TestCase):
+    def test_all_uncertain_evidence_forces_abstention(self) -> None:
+        result = synthesize_evidence(
+            [
+                assessment("1", RelationLabel.UNCERTAIN, 0.59, 0.20, 0.21),
+                assessment("2", RelationLabel.UNCERTAIN, 0.59, 0.20, 0.21),
+            ],
+            [quality("1"), quality("2")],
+        )
+
+        self.assertEqual(result.direction, EvidenceDirection.MIXED)
+        self.assertEqual(result.strength, EvidenceStrength.INSUFFICIENT)
+        self.assertTrue(all(item.uncertain_count == 1 for item in result.articles))
+        self.assertIn("deve se abster", result.rationale)
+
+    def test_uncertain_only_article_does_not_satisfy_minimum(self) -> None:
+        result = synthesize_evidence(
+            [
+                assessment("1", RelationLabel.SUPPORTS, 0.80, 0.10, 0.10),
+                assessment("2", RelationLabel.UNCERTAIN, 0.59, 0.20, 0.21),
+            ],
+            [quality("1"), quality("2")],
+        )
+
+        self.assertEqual(result.direction, EvidenceDirection.SUPPORTS)
+        self.assertEqual(result.strength, EvidenceStrength.INSUFFICIENT)
+        self.assertIn("apenas 1 artigo", result.rationale)
+
+    def test_uncertain_assessment_does_not_distort_confident_direction(self) -> None:
+        result = synthesize_evidence(
+            [
+                assessment("1", RelationLabel.SUPPORTS, 0.80, 0.10, 0.10, 1),
+                assessment("1", RelationLabel.UNCERTAIN, 0.10, 0.59, 0.31, 2),
+                assessment("2", RelationLabel.SUPPORTS, 0.75, 0.10, 0.15, 1),
+            ],
+            [quality("1"), quality("2")],
+        )
+
+        self.assertEqual(result.direction, EvidenceDirection.SUPPORTS)
+        self.assertEqual(result.strength, EvidenceStrength.MODERATE)
+        self.assertAlmostEqual(result.articles[0].support_probability, 0.80)
+
     def test_one_article_has_direction_but_insufficient_strength(self) -> None:
         result = synthesize_evidence(
             [assessment("1", RelationLabel.SUPPORTS, 0.8, 0.1, 0.1)],

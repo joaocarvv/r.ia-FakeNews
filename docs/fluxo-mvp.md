@@ -77,7 +77,11 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/18_validacao_api_http.ipynb`](../notebooks/18_validacao_api_http.ipynb).
 
-**Próxima etapa:** construir uma interface mínima que envie a alegação, acompanhe o processamento e apresente conclusão, limitações e fontes.
+**Etapa concluída:** impedir que evidências inteiramente incertas sustentem uma conclusão e excluir artigos com retratação confirmada da síntese, mantendo ambos os casos auditáveis.
+
+**Comprovação:** [`notebooks/19_validacao_confiabilidade.ipynb`](../notebooks/19_validacao_confiabilidade.ipynb).
+
+**Próxima etapa:** construir um conjunto ouro de alegações e artigos reais, anotado por dois revisores, para medir recuperação, classificação, calibração, abstenção e falsa segurança.
 
 ## Fluxo
 

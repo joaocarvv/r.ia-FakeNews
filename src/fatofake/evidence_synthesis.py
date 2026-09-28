@@ -152,20 +152,38 @@ def _article_synthesis(
     config: SynthesisConfig,
 ) -> ArticleSynthesis:
     count = len(assessments)
-    support = sum(item.probabilities.support for item in assessments) / count
-    contradiction = sum(item.probabilities.contradiction for item in assessments) / count
-    neutral = sum(item.probabilities.neutral for item in assessments) / count
+    usable_assessments = tuple(
+        item for item in assessments if item.relation is not RelationLabel.UNCERTAIN
+    )
+    probability_basis = usable_assessments or tuple(assessments)
+    probability_count = len(probability_basis)
+    support = (
+        sum(item.probabilities.support for item in probability_basis)
+        / probability_count
+    )
+    contradiction = (
+        sum(item.probabilities.contradiction for item in probability_basis)
+        / probability_count
+    )
+    neutral = (
+        sum(item.probabilities.neutral for item in probability_basis)
+        / probability_count
+    )
     relation_counts = Counter(item.relation.value for item in assessments)
     has_internal_conflict = (
         relation_counts[RelationLabel.SUPPORTS.value] > 0
         and relation_counts[RelationLabel.CONTRADICTS.value] > 0
     )
-    direction = _direction_from_probabilities(
-        support,
-        contradiction,
-        neutral,
-        minimum_margin=config.minimum_direction_margin,
-        conflict=has_internal_conflict,
+    direction = (
+        _direction_from_probabilities(
+            support,
+            contradiction,
+            neutral,
+            minimum_margin=config.minimum_direction_margin,
+            conflict=has_internal_conflict,
+        )
+        if usable_assessments
+        else EvidenceDirection.MIXED
     )
     return ArticleSynthesis(
         pmid=pmid,
@@ -229,48 +247,71 @@ def synthesize_evidence(
         _article_synthesis(pmid, grouped[pmid], profiles[pmid], active_config)
         for pmid in sorted(grouped)
     )
-    directions = {article.direction for article in articles}
+    usable_articles = tuple(
+        article
+        for article in articles
+        if article.uncertain_count < article.assessment_count
+    )
+    directions = {article.direction for article in usable_articles}
     directional = directions & {
         EvidenceDirection.SUPPORTS,
         EvidenceDirection.CONTRADICTS,
     }
     has_conflict = (
-        any(article.has_internal_conflict for article in articles)
+        any(article.has_internal_conflict for article in usable_articles)
         or len(directional) > 1
         or EvidenceDirection.MIXED in directions
     )
 
-    total_weight = sum(article.quality.weight for article in articles)
+    probability_basis = usable_articles or articles
+    total_weight = sum(article.quality.weight for article in probability_basis)
     support = sum(
-        article.support_probability * article.quality.weight for article in articles
+        article.support_probability * article.quality.weight
+        for article in probability_basis
     ) / total_weight
     contradiction = sum(
         article.contradiction_probability * article.quality.weight
-        for article in articles
+        for article in probability_basis
     ) / total_weight
     neutral = sum(
-        article.neutral_probability * article.quality.weight for article in articles
+        article.neutral_probability * article.quality.weight
+        for article in probability_basis
     ) / total_weight
-    direction = _direction_from_probabilities(
-        support,
-        contradiction,
-        neutral,
-        minimum_margin=active_config.minimum_direction_margin,
-        conflict=has_conflict,
+    direction = (
+        _direction_from_probabilities(
+            support,
+            contradiction,
+            neutral,
+            minimum_margin=active_config.minimum_direction_margin,
+            conflict=has_conflict,
+        )
+        if usable_articles
+        else EvidenceDirection.MIXED
     )
     strength = _strength(
-        articles,
+        usable_articles,
         has_conflict=has_conflict,
         minimum_articles=active_config.minimum_articles,
     )
 
     if strength is EvidenceStrength.INSUFFICIENT:
-        article_label = "artigo independente" if len(articles) == 1 else "artigos independentes"
-        rationale = (
-            f"Há um sinal {_DIRECTION_NAMES[direction]}, mas apenas {len(articles)} "
-            f"{article_label}; "
-            f"são necessários ao menos {active_config.minimum_articles}."
-        )
+        usable_count = len(usable_articles)
+        if usable_count == 0:
+            rationale = (
+                "Nenhum artigo possui evidência textual que ultrapasse os limites "
+                "mínimos de confiança e margem; o sistema deve se abster."
+            )
+        else:
+            article_label = (
+                "artigo independente com evidência classificada"
+                if usable_count == 1
+                else "artigos independentes com evidência classificada"
+            )
+            rationale = (
+                f"Há um sinal {_DIRECTION_NAMES[direction]}, mas apenas {usable_count} "
+                f"{article_label}; são necessários ao menos "
+                f"{active_config.minimum_articles}."
+            )
     elif has_conflict:
         rationale = "Foram encontrados sinais conflitantes; o conflito foi preservado."
     elif direction is EvidenceDirection.MIXED:

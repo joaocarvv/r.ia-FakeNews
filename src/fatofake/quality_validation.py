@@ -79,6 +79,16 @@ class ArticleQualityReport:
     trial_registrations: tuple[TrialRegistration, ...]
     rationale: str
 
+    @property
+    def is_retracted(self) -> bool:
+        """Indica se uma fonte externa confirmou uma retratação editorial."""
+
+        return any(
+            check.name == "retraction"
+            and check.status is ValidationStatus.CONFIRMED
+            for check in self.checks
+        )
+
     def to_quality_profile(self, publication: Publication) -> ArticleQualityProfile:
         return ArticleQualityProfile(
             pmid=self.pmid,

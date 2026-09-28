@@ -168,6 +168,7 @@ class QualityValidationTests(unittest.TestCase):
         )
 
         self.assertEqual(report.quality_level, QualityLevel.LOW)
+        self.assertTrue(report.is_retracted)
         self.assertEqual(
             next(item.status for item in report.checks if item.name == "retraction"),
             ValidationStatus.CONFIRMED,
@@ -196,6 +197,7 @@ class QualityValidationTests(unittest.TestCase):
         statuses = {check.name: check.status for check in report.checks}
         self.assertEqual(statuses["retraction"], ValidationStatus.UNKNOWN)
         self.assertEqual(statuses["data_availability"], ValidationStatus.UNKNOWN)
+        self.assertFalse(report.is_retracted)
 
 
 if __name__ == "__main__":
