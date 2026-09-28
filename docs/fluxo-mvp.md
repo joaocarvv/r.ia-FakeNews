@@ -81,7 +81,13 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/19_validacao_confiabilidade.ipynb`](../notebooks/19_validacao_confiabilidade.ipynb).
 
-**Próxima etapa:** construir um conjunto ouro de alegações e artigos reais, anotado por dois revisores, para medir recuperação, classificação, calibração, abstenção e falsa segurança.
+**Etapa concluída:** revisar a interpretação das evidências por dois papéis independentes — pesquisador e crítico — e submeter suas saídas a um árbitro determinístico que valida citações, impede a promoção de evidência insuficiente e explicita a necessidade de abstenção.
+
+**Comprovação:** [`notebooks/20_validacao_pesquisa_adversarial.ipynb`](../notebooks/20_validacao_pesquisa_adversarial.ipynb).
+
+Essa etapa valida regras de software com agentes controlados; não representa validação clínica nem demonstra que uma IA possa validar outra IA.
+
+**Próxima etapa:** implementar adaptadores reais e versionados para os agentes e construir um conjunto prata baseado em revisões, diretrizes e casos de retratação, medindo recuperação, correção das citações, abstenção e falsa segurança.
 
 ## Fluxo
 
