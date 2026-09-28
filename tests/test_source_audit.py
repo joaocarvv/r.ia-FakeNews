@@ -22,6 +22,7 @@ from fatofake.source_audit import (
     SCIENCEDIRECT_SEARCH_URL,
     SCIELO_ARTICLE_IDENTIFIERS_URL,
     SPRINGER_META_URL,
+    SPRINGER_OPENACCESS_URL,
 )
 
 
@@ -52,6 +53,8 @@ class ControlledFetcher:
             return {"meta": {"total": 500}, "objects": [{}, {}]}
         if url == SPRINGER_META_URL:
             return {"result": [{"total": "9"}], "records": [{}, {}]}
+        if url == SPRINGER_OPENACCESS_URL:
+            return {"result": [{"total": "6"}], "records": [{}, {}]}
         if url == SCIENCEDIRECT_SEARCH_URL:
             return {
                 "search-results": {
@@ -69,12 +72,13 @@ class SourceAuditTests(unittest.TestCase):
             SourceAuditConfig(
                 query="coffee prostate cancer",
                 limit=2,
-                springer_api_key="springer-secret",
+                springer_meta_api_key="springer-meta-secret",
+                springer_openaccess_api_key="springer-open-secret",
                 elsevier_api_key="elsevier-secret",
             )
         )
 
-        self.assertEqual(len(report.results), 12)
+        self.assertEqual(len(report.results), 13)
         by_source = {item.source: item for item in report.results}
         self.assertEqual(by_source["PubMed"].result_count, 12)
         self.assertEqual(by_source["PubMed"].role, SourceRole.DISCOVERY)
@@ -89,7 +93,7 @@ class SourceAuditTests(unittest.TestCase):
             by_source["Nature"].status,
             SourceProbeStatus.COVERED_BY_OTHER,
         )
-        self.assertEqual(report.available_count, 10)
+        self.assertEqual(report.available_count, 11)
         self.assertEqual(report.error_count, 0)
 
     def test_does_not_call_publisher_apis_without_credentials(self):
@@ -100,7 +104,11 @@ class SourceAuditTests(unittest.TestCase):
         by_source = {item.source: item for item in report.results}
 
         self.assertEqual(
-            by_source["Springer Nature"].status,
+            by_source["Springer Nature Meta"].status,
+            SourceProbeStatus.CREDENTIAL_REQUIRED,
+        )
+        self.assertEqual(
+            by_source["Springer Nature Open Access"].status,
             SourceProbeStatus.CREDENTIAL_REQUIRED,
         )
         self.assertEqual(
@@ -109,6 +117,7 @@ class SourceAuditTests(unittest.TestCase):
         )
         called_urls = {url for url, _, _ in fetcher.calls}
         self.assertNotIn(SPRINGER_META_URL, called_urls)
+        self.assertNotIn(SPRINGER_OPENACCESS_URL, called_urls)
         self.assertNotIn(SCIENCEDIRECT_SEARCH_URL, called_urls)
 
     def test_keeps_one_source_failure_isolated(self):

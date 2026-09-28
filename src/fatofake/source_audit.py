@@ -25,6 +25,7 @@ SCIELO_ARTICLE_IDENTIFIERS_URL = (
     "https://articlemeta.scielo.org/api/v1/article/identifiers"
 )
 SPRINGER_META_URL = "https://api.springernature.com/meta/v2/json"
+SPRINGER_OPENACCESS_URL = "https://api.springernature.com/openaccess/json"
 SCIENCEDIRECT_SEARCH_URL = "https://api.elsevier.com/content/search/sciencedirect"
 
 JsonFetcher = Callable[
@@ -55,7 +56,8 @@ class SourceAuditConfig:
     limit: int = 5
     email: str | None = None
     ncbi_api_key: str | None = None
-    springer_api_key: str | None = None
+    springer_meta_api_key: str | None = None
+    springer_openaccess_api_key: str | None = None
     elsevier_api_key: str | None = None
 
     def __post_init__(self) -> None:
@@ -341,23 +343,23 @@ class AcademicSourceAuditor:
         )
 
     def _springer(self, config: SourceAuditConfig) -> SourceAuditResult:
-        if not config.springer_api_key:
+        if not config.springer_meta_api_key:
             return SourceAuditResult(
-                source="Springer Nature",
+                source="Springer Nature Meta",
                 role=SourceRole.PUBLISHER,
                 status=SourceProbeStatus.CREDENTIAL_REQUIRED,
                 result_count=None,
                 query_specific=True,
                 endpoint=SPRINGER_META_URL,
                 detail="A API de metadados exige chave; nenhum conteúdo foi consultado.",
-                credential_env="SPRINGER_API_KEY",
+                credential_env="SPRINGER_META_API_KEY",
             )
         payload = self._fetch_json(
             SPRINGER_META_URL,
             {
-                "q": f'keyword:"{config.query}"',
+                "q": f"keyword:{config.query}",
                 "p": str(config.limit),
-                "api_key": config.springer_api_key,
+                "api_key": config.springer_meta_api_key,
             },
             {},
         )
@@ -366,12 +368,46 @@ class AcademicSourceAuditor:
             ((payload.get("result") or [{}])[0]).get("total"), len(records)
         )
         return self._result(
-            "Springer Nature",
+            "Springer Nature Meta",
             SourceRole.PUBLISHER,
             total,
             True,
             SPRINGER_META_URL,
             f"Busca editorial; {len(records)} registros recuperados na amostra.",
+        )
+
+    def _springer_open_access(self, config: SourceAuditConfig) -> SourceAuditResult:
+        if not config.springer_openaccess_api_key:
+            return SourceAuditResult(
+                source="Springer Nature Open Access",
+                role=SourceRole.CONTENT,
+                status=SourceProbeStatus.CREDENTIAL_REQUIRED,
+                result_count=None,
+                query_specific=True,
+                endpoint=SPRINGER_OPENACCESS_URL,
+                detail="A API Open Access exige chave; nenhum conteúdo foi consultado.",
+                credential_env="SPRINGER_OPENACCESS_API_KEY",
+            )
+        payload = self._fetch_json(
+            SPRINGER_OPENACCESS_URL,
+            {
+                "q": f"keyword:{config.query}",
+                "p": str(config.limit),
+                "api_key": config.springer_openaccess_api_key,
+            },
+            {},
+        )
+        records = payload.get("records") or []
+        total = self._safe_total(
+            ((payload.get("result") or [{}])[0]).get("total"), len(records)
+        )
+        return self._result(
+            "Springer Nature Open Access",
+            SourceRole.CONTENT,
+            total,
+            True,
+            SPRINGER_OPENACCESS_URL,
+            f"Busca em conteúdo aberto; {len(records)} registros recuperados na amostra.",
         )
 
     def _science_direct(self, config: SourceAuditConfig) -> SourceAuditResult:
@@ -475,7 +511,18 @@ class AcademicSourceAuditor:
             ("OpenAlex", SourceRole.DISCOVERY, OPENALEX_WORKS_URL, lambda: self._openalex(config)),
             ("DataCite", SourceRole.VALIDATION, DATACITE_DOIS_URL, lambda: self._datacite(config)),
             ("SciELO", SourceRole.DISCOVERY, SCIELO_ARTICLE_IDENTIFIERS_URL, lambda: self._scielo(config)),
-            ("Springer Nature", SourceRole.PUBLISHER, SPRINGER_META_URL, lambda: self._springer(config)),
+            (
+                "Springer Nature Meta",
+                SourceRole.PUBLISHER,
+                SPRINGER_META_URL,
+                lambda: self._springer(config),
+            ),
+            (
+                "Springer Nature Open Access",
+                SourceRole.CONTENT,
+                SPRINGER_OPENACCESS_URL,
+                lambda: self._springer_open_access(config),
+            ),
             ("ScienceDirect", SourceRole.PUBLISHER, SCIENCEDIRECT_SEARCH_URL, lambda: self._science_direct(config)),
         )
         for source, role, endpoint, probe in probes:

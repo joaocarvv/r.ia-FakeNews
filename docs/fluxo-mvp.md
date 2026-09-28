@@ -87,7 +87,7 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 Essa etapa valida regras de software com agentes controlados; não representa validação clínica nem demonstra que uma IA possa validar outra IA.
 
-**Etapa concluída:** auditar todas as fontes sugeridas pelo grupo, separando descoberta, conteúdo, validação, plataformas editoriais e conferência manual. O teste ao vivo confirmou acesso a PubMed, PMC, ClinicalTrials.gov, Crossref/Retraction Watch, OpenAlex, DataCite e ao catálogo SciELO; Springer Nature e ScienceDirect exigem credenciais próprias.
+**Etapa concluída:** auditar todas as fontes sugeridas pelo grupo, separando descoberta, conteúdo, validação, plataformas editoriais e conferência manual. O teste ao vivo confirmou acesso a PubMed, PMC, ClinicalTrials.gov, Crossref/Retraction Watch, OpenAlex, DataCite, catálogo SciELO, Springer Nature Meta, Springer Nature Open Access e ScienceDirect.
 
 **Comprovação:** [`notebooks/21_validacao_fontes_cientificas.ipynb`](../notebooks/21_validacao_fontes_cientificas.ipynb).
 

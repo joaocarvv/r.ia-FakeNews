@@ -99,6 +99,9 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 | `EMBEDDING_MODEL` | Não | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Modelo local multilíngue usado na busca semântica. |
 | `NCBI_API_KEY` | Não | vazio | Aumenta o limite da API do NCBI. A POC funciona sem essa chave. |
 | `NCBI_EMAIL` | Recomendada | vazio | Identifica o responsável pelas chamadas ao NCBI. Use um e-mail de contato válido. |
+| `SPRINGER_META_API_KEY` | Não | vazio | Habilita a busca de metadados da Springer Nature na auditoria de fontes. |
+| `SPRINGER_OPENACCESS_API_KEY` | Não | vazio | Habilita a busca de conteúdo aberto da Springer Nature na auditoria de fontes. |
+| `ELSEVIER_API_KEY` | Não | vazio | Habilita a busca na API ScienceDirect da Elsevier na auditoria de fontes. |
 | `MAX_SOURCES` | Não | `8` | Máximo de publicações recuperadas por claim. |
 | `CHUNK_WORDS` | Não | `60` | Tamanho aproximado de cada chunk em palavras. |
 | `CHUNK_OVERLAP` | Não | `12` | Sobreposição entre chunks consecutivos. Deve ser menor que `CHUNK_WORDS`. |
@@ -115,6 +118,9 @@ GEMINI_API_KEY=cole_sua_chave_aqui
 LLM_MODEL=gemini-flash-lite-latest
 NCBI_API_KEY=
 NCBI_EMAIL=seu-email@exemplo.com
+SPRINGER_META_API_KEY=
+SPRINGER_OPENACCESS_API_KEY=
+ELSEVIER_API_KEY=
 MAX_SOURCES=8
 CHUNK_WORDS=60
 CHUNK_OVERLAP=12
