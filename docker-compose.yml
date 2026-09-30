@@ -1,0 +1,23 @@
+# docker compose up        → sobe o JupyterLab em localhost:8888
+# docker compose run app pytest tests/  → roda os testes
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8888:8888"
+    env_file:
+      - .env
+    volumes:
+      # Código e notebooks montados para edição ao vivo (sem rebuild)
+      - ./src:/app/src
+      - ./notebooks:/app/notebooks
+      - ./tests:/app/tests
+      # Persiste modelos do HuggingFace entre restarts
+      - hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+volumes:
+  hf_cache:

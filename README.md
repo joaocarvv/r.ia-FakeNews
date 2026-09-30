@@ -31,6 +31,46 @@ cd r.ia-FakeNews
 git switch fatofake
 ```
 
+## Alternativa: rodar com Docker
+
+Se preferir não instalar Python nem gerenciar dependências manualmente, use Docker.
+Essa opção substitui os passos 2 e 6 e garante o mesmo ambiente em qualquer máquina.
+
+**Pré-requisitos:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado e em execução.
+
+1. Copie o arquivo de variáveis de ambiente e preencha suas chaves (veja as seções 3, 4 e 5):
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Construa a imagem e suba o container:
+
+   ```bash
+   docker compose up --build
+   ```
+
+3. Acesse o JupyterLab em [http://localhost:8888](http://localhost:8888).
+
+Para rodar os testes dentro do container:
+
+```bash
+docker compose run app pytest tests/
+```
+
+Para parar o container:
+
+```bash
+docker compose down
+```
+
+> Na primeira execução o download do PyTorch e dos modelos pode levar alguns minutos.
+> O cache dos modelos do HuggingFace é persistido entre restarts.
+
+Se não quiser usar Docker, siga os passos manuais a partir da seção 2.
+
+---
+
 ## 2. Criar o ambiente Python
 
 No Windows com PowerShell:
