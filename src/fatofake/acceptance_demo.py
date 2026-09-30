@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from .analysis_service import AnalysisServiceError
 from .api import AnalysisJobService, create_app
 from .result_presentation import build_user_summary
+from .verification_cards import build_verification_indicators
 
 
 DEMO_MODE_LABEL = (
@@ -199,6 +200,13 @@ class AcceptanceDemoRunner:
                     },
                 ],
             },
+        }
+        result["verification"] = {
+            "indicators": build_verification_indicators(
+                articles=articles,
+                research_context="EPIDEMIOLOGICAL",
+            ),
+            "alerts": [],
         }
         result["user_summary"] = build_user_summary(result)
         return result

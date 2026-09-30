@@ -11,7 +11,7 @@ from fatofake.verification_cards import (
     build_abstract_analysis_cards,
     build_unassessed_cards,
     detect_language_alerts,
-    build_verification_confidence,
+    build_verification_indicators,
 )
 
 
@@ -20,13 +20,20 @@ def namespace(**values):
 
 
 class VerificationCardsTests(unittest.TestCase):
-    def test_confidence_index_measures_coverage_not_truth(self):
-        result = build_verification_confidence(
+    def test_separates_coverage_compatibility_and_methodological_confidence(self):
+        result = build_verification_indicators(
             research_context="BASIC_SCIENCE",
             articles=(
                 {
+                    "access_level": "FULL_TEXT",
                     "publication_date": "2025",
                     "assessments": [{"relation": "SUPPORTS"}],
+                    "quality": {
+                        "level": "MODERATE",
+                        "is_retracted": False,
+                        "trial_registrations": [],
+                        "datasets": [],
+                    },
                     "retrieval": {
                         "sources": ["PubMed", "OpenAlex"],
                         "citation_count": 12,
@@ -36,9 +43,43 @@ class VerificationCardsTests(unittest.TestCase):
             ),
         )
 
-        self.assertGreater(result["score"], 0)
-        self.assertIn("Não é a probabilidade", result["explanation"])
-        self.assertEqual(result["components"][-1]["status"], "NOT_APPLICABLE")
+        self.assertEqual(set(result), {
+            "search_coverage",
+            "evidence_compatibility",
+            "methodological_confidence",
+        })
+        self.assertNotIn("score", str(result).casefold())
+        self.assertEqual(result["search_coverage"]["assessed_count"], 1)
+        self.assertEqual(result["evidence_compatibility"]["supporting_count"], 1)
+        self.assertEqual(result["methodological_confidence"]["level"], "MODERATE")
+        self.assertIn(
+            "Citações e ramificações não alteram",
+            result["methodological_confidence"]["explanation"],
+        )
+
+    def test_retraction_is_a_critical_alert_instead_of_a_numeric_penalty(self):
+        result = build_verification_indicators(
+            research_context="CLINICAL",
+            articles=(
+                {
+                    "access_level": "FULL_TEXT",
+                    "assessments": [{"relation": "SUPPORTS"}],
+                    "quality": {
+                        "level": "HIGH",
+                        "study_design": "RANDOMIZED_CLINICAL_TRIAL",
+                        "is_retracted": True,
+                        "trial_registrations": [{"nct_id": "NCT00000001"}],
+                        "datasets": [],
+                    },
+                },
+            ),
+        )
+
+        methodology = result["methodological_confidence"]
+        self.assertEqual(methodology["level"], "CRITICAL_ALERT")
+        self.assertEqual(methodology["retracted_count"], 1)
+        self.assertNotIn("score", methodology)
+
     def test_unassessed_retrieval_never_invents_a_percentage(self):
         result = build_unassessed_cards(
             claim="A vitamina C reduz resfriados?",

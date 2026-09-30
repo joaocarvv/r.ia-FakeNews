@@ -130,6 +130,15 @@ class ArticleIngestionTests(unittest.TestCase):
             result["user_summary"]["claim"],
             "The treatment reduces symptoms in adults.",
         )
+        self.assertNotIn("confidence_index", result["verification"])
+        self.assertEqual(
+            set(result["verification"]["indicators"]),
+            {
+                "search_coverage",
+                "evidence_compatibility",
+                "methodological_confidence",
+            },
+        )
         self.assertEqual(
             result["verification"]["alerts"][0]["code"],
             "ABSOLUTE_LANGUAGE_IN_ARTICLE",

@@ -17,7 +17,7 @@ from .input_validation import DOI_PATTERN, DOI_PREFIX_PATTERN, InputValidationEr
 from .pmc import ContentRetrievalError, PmcClient, retrieve_article_content
 from .pubmed import PubMedClient, PubMedError
 from .result_presentation import build_user_summary
-from .verification_cards import build_verification_confidence
+from .verification_cards import build_verification_indicators
 
 
 MAX_ARTICLE_FILE_BYTES = 10 * 1024 * 1024
@@ -596,7 +596,8 @@ class ArticleFirstAnalysisRunner:
             include_all_claims=False,
         )
         verification = dict(result.get("verification") or {})
-        verification["confidence_index"] = build_verification_confidence(
+        verification.pop("confidence_index", None)
+        verification["indicators"] = build_verification_indicators(
             articles=tuple(result.get("articles") or ()),
             research_context=extracted.research_context,
         )

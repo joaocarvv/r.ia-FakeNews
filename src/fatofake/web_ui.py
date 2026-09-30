@@ -77,20 +77,16 @@ WEB_UI_HTML = r"""<!doctype html>
     .kicker { color: var(--brand); font-size: .75rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
     h2 { margin: 7px 0 10px; font-family: Georgia, 'Times New Roman', serif; font-size: 2rem; line-height: 1.08; }
     h3 { margin: 0 0 14px; font-size: 1.05rem; }
-    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 20px; }
-    .metric { padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcf9; }
-    .metric span { display: block; color: var(--muted); font-size: .73rem; text-transform: uppercase; }
-    .metric strong { display: block; margin-top: 3px; font-size: 1.03rem; }
+    .indicator-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 0 0 20px; }
+    .indicator-card { padding: 19px; }
+    .indicator-card h3 { margin: 7px 0 8px; }
+    .indicator-card p { margin: 0; color: var(--muted); font-size: .87rem; }
+    .indicator-note { grid-column: 1 / -1; margin: -4px 2px 0; color: var(--muted); font-size: .8rem; }
     .stack { display: grid; gap: 16px; margin-top: 20px; }
-    .verification-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 20px; }
-    .verification-card { padding: 20px; }
-    .score { margin: 4px 0 8px; color: var(--brand-dark); font-family: Georgia, 'Times New Roman', serif; font-size: 2rem; font-weight: 700; }
-    .score small { color: var(--muted); font: 500 .78rem Arial, Helvetica, sans-serif; }
     .alert-list { display: grid; gap: 10px; padding: 0; list-style: none; }
     .alert-item { padding: 12px 14px; border-left: 4px solid var(--accent); border-radius: 8px; background: #fff8e9; }
     .alert-item[data-severity="CRITICAL"] { border-color: var(--danger); background: #fff0ee; }
     .alert-item strong { display: block; }
-    .article { padding: 20px; }
     .article-meta { color: var(--muted); font-size: .82rem; }
     .evidence { margin-top: 13px; padding-left: 13px; border-left: 3px solid var(--accent); }
     .evidence p { margin: 4px 0; }
@@ -121,8 +117,7 @@ WEB_UI_HTML = r"""<!doctype html>
       header { display: block; }
       .mode { margin-top: 18px; max-width: none; }
       .result-grid { grid-template-columns: 1fr; }
-      .verification-grid { grid-template-columns: 1fr; }
-      .metrics { grid-template-columns: 1fr; }
+      .indicator-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -168,6 +163,24 @@ WEB_UI_HTML = r"""<!doctype html>
         <p>Cada alegação possui busca, evidências e resultado próprios. Selecione uma para conferir.</p>
         <div id="claim-tabs" class="claim-tabs" role="tablist"></div>
       </section>
+      <section class="indicator-grid" aria-label="Indicadores separados da análise">
+        <article class="panel indicator-card">
+          <div class="kicker">Cobertura da busca</div>
+          <h3 id="coverage-label"></h3>
+          <p id="coverage-detail"></p>
+        </article>
+        <article class="panel indicator-card">
+          <div class="kicker">Compatibilidade das evidências</div>
+          <h3 id="compatibility-label"></h3>
+          <p id="compatibility-detail"></p>
+        </article>
+        <article class="panel indicator-card">
+          <div class="kicker">Confiança metodológica</div>
+          <h3 id="methodology-label"></h3>
+          <p id="methodology-detail"></p>
+        </article>
+        <p class="indicator-note">Os três indicadores têm significados diferentes e não representam uma probabilidade de o artigo estar correto.</p>
+      </section>
       <div class="result-grid">
         <article class="panel result-card">
           <div class="kicker">Resposta em linguagem clara</div>
@@ -175,7 +188,6 @@ WEB_UI_HTML = r"""<!doctype html>
           <p id="claim-quote" class="evidence"></p>
           <h2 id="headline"></h2>
           <p id="summary"></p>
-          <div class="metrics" id="metrics"></div>
           <div class="summary-box">
             <strong>Como interpretar</strong>
             <span id="interpretation"></span>
@@ -222,11 +234,6 @@ WEB_UI_HTML = r"""<!doctype html>
     const errorBox = document.getElementById('error');
     const resultBox = document.getElementById('result');
 
-    const labels = {
-      SUPPORTS: 'Apoia', CONTRADICTS: 'Contradiz', NEUTRAL: 'Neutra', UNCERTAIN: 'Incerta',
-      LOW: 'Baixa', MODERATE: 'Moderada', HIGH: 'Alta', INSUFFICIENT: 'Limitada',
-      MIXED: 'Conflitante', NOT_APPLICABLE: 'Não aplicável'
-    };
     const text = value => value == null ? 'Não informado' : String(value);
     const safeUrl = value => {
       try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href : null; }
@@ -245,13 +252,6 @@ WEB_UI_HTML = r"""<!doctype html>
       const names = {QUEUED: 'Análise na fila…', RUNNING: 'Consultando e comparando evidências…'};
       statusText.textContent = names[status] || 'Preparando resultado…';
       progressText.textContent = `${progress}%`; progressBar.style.width = `${progress}%`;
-    }
-    function metric(parent, name, value) {
-      const card = document.createElement('div'); card.className = 'metric';
-      addTextElement(card, 'span', name); addTextElement(card, 'strong', value); parent.appendChild(card);
-    }
-    function percentage(value, suffix) {
-      return value == null ? 'Não avaliado' : `${Math.round(value)}%${suffix || ''}`;
     }
     function renderResult(data, shouldScroll) {
       const report = data.report || {};
@@ -282,23 +282,25 @@ WEB_UI_HTML = r"""<!doctype html>
       const reading = narrative.reading || {};
       document.getElementById('reading-summary').textContent = text(reading.summary);
 
-      const balance = narrative.evidence_balance || {};
-      const metrics = document.getElementById('metrics'); clearNode(metrics);
-      metric(metrics, 'Compatíveis', balance.SUPPORTS || 0);
-      metric(metrics, 'Divergentes', balance.CONTRADICTS || 0);
-      metric(metrics, 'Só contexto', balance.NEUTRAL || 0);
-      metric(metrics, 'Inconclusivos', balance.UNCERTAIN || 0);
+      const indicators = verification.indicators || {};
+      const coverage = indicators.search_coverage || {};
+      const compatibility = indicators.evidence_compatibility || {};
+      const methodology = indicators.methodological_confidence || {};
+      document.getElementById('coverage-label').textContent = text(coverage.label);
+      document.getElementById('coverage-detail').textContent = text(coverage.explanation);
+      document.getElementById('compatibility-label').textContent = text(compatibility.label);
+      document.getElementById('compatibility-detail').textContent = text(compatibility.explanation);
+      document.getElementById('methodology-label').textContent = text(methodology.label);
+      document.getElementById('methodology-detail').textContent = text(methodology.explanation);
 
       const limitations = document.getElementById('limitations'); clearNode(limitations);
       (narrative.caveats || []).forEach(item => addTextElement(limitations, 'li', item));
 
       const partial = verification.partial_verification || {};
-      const confidence = verification.confidence_index || {};
       const meta = verification.meta_analysis || {};
       const trials = verification.clinical_trials || {};
       const technicalParts = [
-        `Cobertura dos artigos recuperados: ${percentage(partial.percentage)}.`,
-        `Índice de cobertura da verificação: ${confidence.score == null ? 'não avaliado' : `${confidence.score}%`}.`,
+        `Processamento detalhado: ${partial.verified_count || 0} de ${partial.total_count || 0} documentos com evidência utilizável.`,
         `Meta-análises: ${text(meta.explanation)}.`,
         `Ensaios clínicos: ${text(trials.explanation)}.`
       ];

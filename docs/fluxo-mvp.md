@@ -123,7 +123,11 @@ Resultados neutros são apresentados como contexto relacionado, não como confir
 
 **Comprovação:** [`notebooks/27_validacao_multiplas_alegacoes.ipynb`](../notebooks/27_validacao_multiplas_alegacoes.ipynb).
 
-**Próxima etapa:** substituir a porcentagem única por indicadores separados de cobertura da busca, compatibilidade das evidências e confiança metodológica, acompanhados de rótulos cautelosos.
+**Etapa concluída:** remover o índice percentual geral da apresentação e separar cobertura da busca, compatibilidade das evidências e confiança metodológica. Cobertura e compatibilidade usam contagens e denominadores explícitos; confiança metodológica é categórica e mostra a distribuição dos níveis. Citações e ramificações não aumentam a qualidade metodológica, e retratações geram alerta grave em vez de serem diluídas em uma média.
+
+**Comprovação:** [`notebooks/28_validacao_indicadores_separados.ipynb`](../notebooks/28_validacao_indicadores_separados.ipynb).
+
+**Próxima etapa:** priorizar metadados determinísticos na classificação do desenho do estudo e ampliar a ficha do artigo enviado com identidade, status editorial, amostra, financiamento, dados e protocolo.
 
 ## Fluxo
 
