@@ -198,7 +198,7 @@ class RetrievalPreviewTests(unittest.TestCase):
         self.assertEqual(result["articles"][0]["assessments"][0]["relation"], "SUPPORTS")
         self.assertEqual(
             result["verification"]["partial_verification"]["percentage"],
-            50,
+            round(100 / len(result["articles"])),
         )
         self.assertEqual(
             result["verification"]["meta_analysis"]["compatibility_percentage"],

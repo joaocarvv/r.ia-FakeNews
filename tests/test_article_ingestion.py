@@ -56,9 +56,19 @@ class EvidenceRunnerStub:
         excluded_dois=(),
         query_override=None,
         related_seed_pmids=(),
+        seed_doi=None,
+        seed_authors=(),
     ):
         self.calls.append(
-            (claim, article_reference, excluded_dois, query_override, related_seed_pmids)
+            (
+                claim,
+                article_reference,
+                excluded_dois,
+                query_override,
+                related_seed_pmids,
+                seed_doi,
+                seed_authors,
+            )
         )
         return {"verification": {"alerts": []}, "articles": []}
 

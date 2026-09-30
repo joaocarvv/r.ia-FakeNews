@@ -12,6 +12,7 @@ from fatofake import (
     FederatedSearchEngine,
     FederatedSearchError,
     OpenAlexClient,
+    OpenAlexGraphExplorer,
     OpenAlexSearchProvider,
     ProviderSearchResult,
     RetrievalError,
@@ -129,6 +130,49 @@ class FederatedDeduplicationTests(unittest.TestCase):
 
 
 class OpenAlexProviderTests(unittest.TestCase):
+    def test_expands_seed_into_references_citations_and_related_works(self):
+        def record(identifier, title):
+            return {
+                "id": f"https://openalex.org/{identifier}",
+                "display_name": title,
+                "publication_year": 2024,
+                "ids": {},
+                "authorships": [],
+                "primary_location": {},
+            }
+
+        def fetcher(_url, params):
+            filter_value = params["filter"]
+            if filter_value.startswith("doi:"):
+                return {
+                    "meta": {"count": 1},
+                    "results": [
+                        {
+                            **record("W1", "Seed"),
+                            "referenced_works": ["https://openalex.org/W2"],
+                            "related_works": ["https://openalex.org/W3"],
+                        }
+                    ],
+                }
+            if filter_value == "cites:W1":
+                return {"meta": {"count": 1}, "results": [record("W4", "Citing work")]}
+            if filter_value == "openalex_id:W2":
+                return {"meta": {"count": 1}, "results": [record("W2", "Reference work")]}
+            if filter_value == "openalex_id:W3":
+                return {"meta": {"count": 1}, "results": [record("W3", "Related work")]}
+            raise AssertionError(filter_value)
+
+        result = OpenAlexGraphExplorer(OpenAlexClient(fetch_json=fetcher)).expand(
+            "10.1000/seed"
+        )
+
+        self.assertFalse(result.failures)
+        self.assertEqual(len(result.works), 3)
+        self.assertEqual(
+            {item.sources[0] for item in result.works},
+            {"OpenAlex referências", "OpenAlex citações", "OpenAlex relacionados"},
+        )
+
     def test_normalizes_openalex_record_and_pmid(self):
         calls = []
 

@@ -335,8 +335,11 @@ WEB_UI_HTML = r"""<!doctype html>
       const partial = verification.partial_verification || {};
       const meta = verification.meta_analysis || {};
       const trials = verification.clinical_trials || {};
+      const search = data.search || {};
+      const reranking = search.reranking || {};
       const technicalParts = [
         `Processamento detalhado: ${partial.verified_count || 0} de ${partial.total_count || 0} documentos com evidência utilizável.`,
+        `Busca ampliada: ${(search.query_expansion || []).length} estratégias; reranker manteve ${reranking.accepted_count || 0} de ${reranking.evaluated_count || 0} candidatos.`,
         `Meta-análises: ${text(meta.explanation)}.`,
         `Ensaios clínicos: ${text(trials.explanation)}.`
       ];

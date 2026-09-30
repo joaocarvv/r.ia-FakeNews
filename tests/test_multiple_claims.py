@@ -78,8 +78,19 @@ class RecordingEvidenceRunner:
         excluded_dois=(),
         query_override=None,
         related_seed_pmids=(),
+        seed_doi=None,
+        seed_authors=(),
     ):
-        self.calls.append((claim, query_override, excluded_dois, related_seed_pmids))
+        self.calls.append(
+            (
+                claim,
+                query_override,
+                excluded_dois,
+                related_seed_pmids,
+                seed_doi,
+                seed_authors,
+            )
+        )
         return {"verification": {"alerts": []}, "articles": []}
 
 
@@ -103,6 +114,7 @@ class MultipleClaimsTests(unittest.TestCase):
             pages=(ParsedPage(6, text),),
             sections=(("Results", text),),
             content_scope="FULL_TEXT",
+            authors=("Ana Silva",),
         )
 
     def test_extracts_atomic_claims_deduplicates_and_preserves_location(self):
@@ -140,6 +152,8 @@ class MultipleClaimsTests(unittest.TestCase):
         for call, analysis in zip(evidence.calls, result["claim_analyses"]):
             self.assertEqual(call[0], analysis["claim"]["text"])
             self.assertEqual(call[1], analysis["claim"]["search_query"])
+            self.assertEqual(call[4], "10.1000/rhodopsin")
+            self.assertEqual(call[5], ("Ana Silva",))
             self.assertEqual(
                 analysis["result"]["user_summary"]["claim"],
                 analysis["claim"]["text"],

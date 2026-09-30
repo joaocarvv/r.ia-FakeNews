@@ -89,6 +89,8 @@ from .federated_search import (
     FederatedSearchError,
     FederatedSearchResult,
     OpenAlexClient,
+    OpenAlexGraphExplorer,
+    OpenAlexGraphResult,
     OpenAlexSearchProvider,
     ProviderSearchResult,
     PubMedSearchProvider,
@@ -135,6 +137,12 @@ from .search_preparation import (
     SearchPlan,
     SearchPreparationError,
     prepare_search_plan,
+)
+from .scientific_search import (
+    ClaimRelevanceReranker,
+    ExpandedQuery,
+    RerankedWork,
+    expand_scientific_queries,
 )
 from .source_audit import (
     AcademicSourceAuditor,
@@ -308,6 +316,8 @@ __all__ = [
     "FederatedSearchError",
     "FederatedSearchResult",
     "OpenAlexClient",
+    "OpenAlexGraphExplorer",
+    "OpenAlexGraphResult",
     "OpenAlexSearchProvider",
     "ProviderSearchResult",
     "PubMedSearchProvider",
@@ -318,4 +328,8 @@ __all__ = [
     "deduplicate_works",
     "normalize_doi",
     "normalize_pmid",
+    "ClaimRelevanceReranker",
+    "ExpandedQuery",
+    "RerankedWork",
+    "expand_scientific_queries",
 ]

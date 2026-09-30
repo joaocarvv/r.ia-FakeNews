@@ -131,7 +131,11 @@ Resultados neutros são apresentados como contexto relacionado, não como confir
 
 **Comprovação:** [`notebooks/29_validacao_ficha_artigo.ipynb`](../notebooks/29_validacao_ficha_artigo.ipynb).
 
-**Próxima etapa:** ampliar a busca científica por alegação com sinônimos/MeSH, vizinhos do PubMed, referências, citações, OpenAlex, revisões, DOI e autores, seguida de reranking por aderência à pergunta científica.
+**Etapa concluída:** ampliar cada busca por alegação com consulta temática, vocabulário biomédico rastreável, descritores MeSH candidatos, revisões sistemáticas/meta-análises, DOI e primeiro autor. O fluxo também reúne vizinhos do PubMed e referências, citações e trabalhos relacionados do OpenAlex. Um reranker conservador exige cobertura dos conceitos centrais no título, registra pontuação, correspondências e motivos, e exclui coincidências lexicais fracas antes da análise de texto. Ligações e citações ampliam a cobertura, mas não são usadas como prova de qualidade.
+
+**Comprovação:** [`notebooks/30_validacao_busca_expandida_reranking.ipynb`](../notebooks/30_validacao_busca_expandida_reranking.ipynb).
+
+**Próxima etapa:** construir um conjunto de avaliação conhecido e medir Recall@K, Precision@K, qualidade dos trechos, citações inexistentes, classificação, abstenção correta e estabilidade entre execuções.
 
 ## Fluxo
 

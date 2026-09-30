@@ -512,6 +512,8 @@ class IndependentEvidenceRunner(Protocol):
         excluded_dois: tuple[str, ...] = (),
         query_override: str | None = None,
         related_seed_pmids: tuple[str, ...] = (),
+        seed_doi: str | None = None,
+        seed_authors: tuple[str, ...] = (),
     ) -> Mapping[str, Any]: ...
 
 
@@ -752,6 +754,8 @@ class ArticleFirstAnalysisRunner:
                     related_seed_pmids=(
                         (resolved.pmid,) if resolved and resolved.pmid else ()
                     ),
+                    seed_doi=extracted.doi,
+                    seed_authors=resolved.authors if resolved else (),
                 )
             )
             claim_result = self._enrich_claim_result(

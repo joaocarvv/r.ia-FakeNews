@@ -58,6 +58,7 @@ class ScientificWork:
     citation_count: int | None = None
     related_work_count: int | None = None
     full_text_url: str | None = None
+    publication_types: tuple[str, ...] = ()
 
     def to_publication(self) -> Publication | None:
         """Converte apenas trabalhos vinculados ao PubMed para o fluxo atual."""
@@ -74,6 +75,7 @@ class ScientificWork:
             url=f"https://pubmed.ncbi.nlm.nih.gov/{self.pmid}/",
             matched_queries=self.matched_queries,
             source=", ".join(self.sources),
+            publication_types=self.publication_types,
         )
 
 
@@ -287,6 +289,13 @@ def deduplicate_works(
                         default=None,
                     ),
                     full_text_url=_first_nonempty(records, "full_text_url"),
+                    publication_types=tuple(
+                        dict.fromkeys(
+                            item
+                            for record in records
+                            for item in record.publication_types
+                        )
+                    ),
                 ),
             )
         )
@@ -318,6 +327,7 @@ class PubMedSearchProvider:
                 sources=(self.name,),
                 source_ids=((self.name, item.pmid),),
                 source_ranks=(SourceRank(self.name, query, rank),),
+                publication_types=item.publication_types,
             )
             for rank, item in enumerate(publications, start=1)
         )
@@ -417,6 +427,36 @@ class OpenAlexClient:
             raise RetrievalError("Contagem do OpenAlex inválida.") from error
         results = tuple(item for item in raw_results if isinstance(item, Mapping))
         return total, results
+
+    def filter_works(
+        self,
+        filter_value: str,
+        *,
+        max_results: int,
+        sort: str | None = None,
+    ) -> tuple[int, tuple[Mapping[str, Any], ...]]:
+        """Consulta relações do grafo sem converter o filtro em busca textual."""
+
+        if not filter_value.strip():
+            raise ValueError("O filtro do OpenAlex não pode ser vazio.")
+        if not 1 <= max_results <= 100:
+            raise ValueError("max_results deve estar entre 1 e 100.")
+        params = {"filter": filter_value, "per_page": str(max_results)}
+        if sort:
+            params["sort"] = sort
+        if self.email:
+            params["mailto"] = self.email
+        if self.api_key:
+            params["api_key"] = self.api_key
+        payload = self._fetch_json(OPENALEX_WORKS_URL, params)
+        raw_results = payload.get("results") or []
+        if not isinstance(raw_results, list):
+            raise RetrievalError("Resposta de relações do OpenAlex inválida.")
+        try:
+            total = max(int((payload.get("meta") or {}).get("count", len(raw_results))), 0)
+        except (TypeError, ValueError) as error:
+            raise RetrievalError("Contagem de relações do OpenAlex inválida.") from error
+        return total, tuple(item for item in raw_results if isinstance(item, Mapping))
 
 
 class OpenAlexSearchProvider:
@@ -525,6 +565,99 @@ class ScieloSearchProvider(OpenAlexSearchProvider):
             name="SciELO (via OpenAlex)",
             source_filter=SCIELO_SOURCE_LIST_FILTER,
         )
+
+
+@dataclass(frozen=True)
+class OpenAlexGraphResult:
+    works: tuple[ScientificWork, ...]
+    query_results: tuple[FederatedQueryResult, ...]
+    failures: tuple[SourceSearchFailure, ...]
+
+
+class OpenAlexGraphExplorer:
+    """Expande DOI-semente por referências, citações e trabalhos relacionados."""
+
+    _RELATIONS = (
+        ("OpenAlex referências", "referenced_works"),
+        ("OpenAlex relacionados", "related_works"),
+    )
+
+    def __init__(self, client: OpenAlexClient) -> None:
+        self.client = client
+
+    @staticmethod
+    def _short_id(value: Any) -> str | None:
+        match = re.search(r"\bW\d+\b", str(value or ""), re.I)
+        return match.group(0).upper() if match else None
+
+    def _normalize_many(
+        self,
+        records: Sequence[Mapping[str, Any]],
+        *,
+        source: str,
+        query: str,
+    ) -> tuple[ScientificWork, ...]:
+        provider = OpenAlexSearchProvider(self.client, name=source)
+        return tuple(
+            provider._normalize(item, query, rank)
+            for rank, item in enumerate(records, start=1)
+        )
+
+    def expand(self, doi: str, *, max_results: int = 5) -> OpenAlexGraphResult:
+        normalized_doi = normalize_doi(doi)
+        if not normalized_doi:
+            return OpenAlexGraphResult((), (), ())
+        failures: list[SourceSearchFailure] = []
+        query_results: list[FederatedQueryResult] = []
+        works: list[ScientificWork] = []
+        seed_query = f"doi:{normalized_doi}"
+        try:
+            _, seed_records = self.client.filter_works(
+                f"doi:https://doi.org/{normalized_doi}", max_results=1
+            )
+        except (RetrievalError, ValueError) as error:
+            return OpenAlexGraphResult(
+                (), (), (SourceSearchFailure("OpenAlex grafo", seed_query, str(error)),)
+            )
+        if not seed_records:
+            return OpenAlexGraphResult(
+                (),
+                (),
+                (SourceSearchFailure("OpenAlex grafo", seed_query, "DOI-semente não localizado."),),
+            )
+        seed = seed_records[0]
+        seed_id = self._short_id(seed.get("id"))
+        if seed_id:
+            try:
+                total, records = self.client.filter_works(
+                    f"cites:{seed_id}", max_results=max_results, sort="cited_by_count:desc"
+                )
+                source = "OpenAlex citações"
+                works.extend(self._normalize_many(records, source=source, query=seed_query))
+                query_results.append(FederatedQueryResult(source, seed_query, total, len(records)))
+            except (RetrievalError, ValueError) as error:
+                failures.append(SourceSearchFailure("OpenAlex citações", seed_query, str(error)))
+
+        for source, field in self._RELATIONS:
+            identifiers = tuple(
+                dict.fromkeys(
+                    identifier
+                    for value in (seed.get(field) or ())[:max_results]
+                    if (identifier := self._short_id(value))
+                )
+            )
+            if not identifiers:
+                query_results.append(FederatedQueryResult(source, seed_query, 0, 0))
+                continue
+            try:
+                total, records = self.client.filter_works(
+                    f"openalex_id:{'|'.join(identifiers)}", max_results=max_results
+                )
+                works.extend(self._normalize_many(records, source=source, query=seed_query))
+                query_results.append(FederatedQueryResult(source, seed_query, total, len(records)))
+            except (RetrievalError, ValueError) as error:
+                failures.append(SourceSearchFailure(source, seed_query, str(error)))
+        return OpenAlexGraphResult(tuple(works), tuple(query_results), tuple(failures))
 
 
 class FederatedSearchEngine:

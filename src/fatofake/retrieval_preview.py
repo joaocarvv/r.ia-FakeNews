@@ -30,6 +30,7 @@ from .federated_search import (
     FederatedSearchEngine,
     FederatedSearchError,
     OpenAlexClient,
+    OpenAlexGraphExplorer,
     OpenAlexSearchProvider,
     PubMedSearchProvider,
     ScieloSearchProvider,
@@ -45,6 +46,7 @@ from .pubmed import PubMedClient, PubMedError
 from .retrieval import Bm25Index, RetrievalError
 from .result_presentation import build_user_summary
 from .search_preparation import SearchPlan, prepare_search_plan
+from .scientific_search import ClaimRelevanceReranker, expand_scientific_queries
 from .verification_cards import (
     build_abstract_analysis_cards,
     build_unassessed_cards,
@@ -196,6 +198,7 @@ class RetrievalPreviewRunner:
         abstract_client: PmcClient | None = None,
         evidence_analyzer: GeminiEvidenceAnalyzer | None = None,
         related_client: PubMedClient | None = None,
+        openalex_graph: OpenAlexGraphExplorer | None = None,
         open_access_client: OpenAccessContentClient | None = None,
         max_results_per_query: int = 5,
         max_analysis_articles: int = 5,
@@ -207,6 +210,7 @@ class RetrievalPreviewRunner:
         self.abstract_client = abstract_client
         self.evidence_analyzer = evidence_analyzer
         self.related_client = related_client
+        self.openalex_graph = openalex_graph
         self.open_access_client = open_access_client
         self.max_results_per_query = max_results_per_query
         self.max_analysis_articles = max_analysis_articles
@@ -248,6 +252,7 @@ class RetrievalPreviewRunner:
                                 "PubMed relacionados", f"related:{seed_pmid}", rank
                             ),
                         ),
+                        publication_types=item.publication_types,
                     )
                 )
         return tuple(works), tuple(failures)
@@ -394,6 +399,8 @@ class RetrievalPreviewRunner:
         excluded_dois: Sequence[str] = (),
         query_override: str | None = None,
         related_seed_pmids: Sequence[str] = (),
+        seed_doi: str | None = None,
+        seed_authors: Sequence[str] = (),
     ) -> Mapping[str, Any]:
         analysis_input = validate_analysis_input(claim, article_reference)
         if query_override:
@@ -415,6 +422,20 @@ class RetrievalPreviewRunner:
                 queries=queries,
                 article_reference=plan.article_reference,
             )
+        effective_seed_doi = seed_doi
+        if not effective_seed_doi and analysis_input.reference_type == "doi":
+            effective_seed_doi = analysis_input.article_reference
+        expanded_queries = expand_scientific_queries(
+            analysis_input.claim,
+            plan.queries,
+            seed_doi=effective_seed_doi,
+            seed_authors=seed_authors,
+        )
+        plan = SearchPlan(
+            claim=plan.claim,
+            queries=tuple(item.query for item in expanded_queries),
+            article_reference=plan.article_reference,
+        )
         try:
             result = self.search_engine.search(
                 plan,
@@ -426,11 +447,25 @@ class RetrievalPreviewRunner:
             ) from error
 
         related_works, related_failures = self._related_works(related_seed_pmids)
+        graph_works: tuple[ScientificWork, ...] = ()
+        graph_query_results = ()
+        graph_failures = ()
+        if self.openalex_graph is not None and effective_seed_doi:
+            graph_result = self.openalex_graph.expand(
+                effective_seed_doi,
+                max_results=self.max_results_per_query,
+            )
+            graph_works = graph_result.works
+            graph_query_results = graph_result.query_results
+            graph_failures = graph_result.failures
         all_works = deduplicate_works(
-            (*result.works, *related_works),
+            (*result.works, *related_works, *graph_works),
             source_order=(
                 "PubMed",
                 "PubMed relacionados",
+                "OpenAlex referências",
+                "OpenAlex citações",
+                "OpenAlex relacionados",
                 "OpenAlex",
                 "SciELO (via OpenAlex)",
             ),
@@ -438,11 +473,17 @@ class RetrievalPreviewRunner:
         normalized_exclusions = {
             item.strip().casefold() for item in excluded_dois if item.strip()
         }
-        works = tuple(
+        eligible_works = tuple(
             work
             for work in all_works
             if not work.doi or work.doi.strip().casefold() not in normalized_exclusions
         )
+        reranking_basis = query_override or expanded_queries[0].query
+        reranked = ClaimRelevanceReranker().rank(reranking_basis, eligible_works)
+        works = tuple(item.work for item in reranked if item.accepted)
+        reranking_by_identity = {
+            (item.work.doi or item.work.pmid or item.work.url): item for item in reranked
+        }
 
         (
             assessments,
@@ -516,6 +557,15 @@ class RetrievalPreviewRunner:
                     "matched_queries": list(work.matched_queries),
                     "citation_count": work.citation_count,
                     "related_work_count": work.related_work_count,
+                    "reranking_score": reranking_by_identity[
+                        work.doi or work.pmid or work.url
+                    ].score,
+                    "concept_matches": list(
+                        reranking_by_identity[work.doi or work.pmid or work.url].concept_matches
+                    ),
+                    "reranking_reasons": list(
+                        reranking_by_identity[work.doi or work.pmid or work.url].reasons
+                    ),
                 },
             }
             for work in works
@@ -547,6 +597,15 @@ class RetrievalPreviewRunner:
         if related_failures:
             limitations.append(
                 "A expansão por artigos relacionados do PubMed falhou parcialmente."
+            )
+        if graph_failures:
+            limitations.append(
+                "A expansão de referências, citações ou relacionados do OpenAlex falhou parcialmente."
+            )
+        rejected_count = sum(not item.accepted for item in reranked)
+        if rejected_count:
+            limitations.append(
+                f"O reranker excluiu {rejected_count} candidato(s) com cobertura temática insuficiente no título."
             )
 
         usable = tuple(item for item in assessments if item.relation != "UNCERTAIN")
@@ -617,6 +676,14 @@ class RetrievalPreviewRunner:
             },
             "search": {
                 "queries": list(plan.queries),
+                "query_expansion": [
+                    {
+                        "query": item.query,
+                        "strategy": item.strategy,
+                        "explanation": item.explanation,
+                    }
+                    for item in expanded_queries
+                ],
                 "query_results": [
                     {
                         "source": item.source,
@@ -625,6 +692,15 @@ class RetrievalPreviewRunner:
                         "retrieved_count": item.retrieved_count,
                     }
                     for item in result.query_results
+                ]
+                + [
+                    {
+                        "source": item.source,
+                        "query": item.query,
+                        "total_matches": item.total_matches,
+                        "retrieved_count": item.retrieved_count,
+                    }
+                    for item in graph_query_results
                 ]
                 + (
                     [
@@ -640,8 +716,28 @@ class RetrievalPreviewRunner:
                 ),
                 "candidate_count": len(all_works),
                 "unique_work_count": len(works),
+                "reranking": {
+                    "basis": reranking_basis,
+                    "evaluated_count": len(reranked),
+                    "accepted_count": len(works),
+                    "rejected_count": rejected_count,
+                    "rejected": [
+                        {
+                            "title": item.work.title,
+                            "doi": item.work.doi,
+                            "pmid": item.work.pmid,
+                            "score": item.score,
+                            "concept_matches": list(item.concept_matches),
+                            "reasons": list(item.reasons),
+                        }
+                        for item in reranked
+                        if not item.accepted
+                    ][:20],
+                },
                 "unresolved_work_count": len(result.unresolved_works),
-                "source_failure_count": len(result.failures) + len(related_failures),
+                "source_failure_count": (
+                    len(result.failures) + len(related_failures) + len(graph_failures)
+                ),
             },
             "articles": articles,
             "failures": [
@@ -659,6 +755,14 @@ class RetrievalPreviewRunner:
                     "reason": reason,
                 }
                 for reason in related_failures
+            ]
+            + [
+                {
+                    "source": item.source,
+                    "query": item.query,
+                    "reason": item.reason,
+                }
+                for item in graph_failures
             ],
             "synthesis": {
                 "direction": direction,
@@ -768,6 +872,7 @@ def create_live_retrieval_app(*, project_root: Path | None = None):
         abstract_client=pmc_client,
         evidence_analyzer=evidence_analyzer,
         related_client=pubmed_client,
+        openalex_graph=OpenAlexGraphExplorer(openalex),
         open_access_client=open_access_client,
     )
     service = AnalysisJobService(
