@@ -77,7 +77,7 @@ WEB_UI_HTML = r"""<!doctype html>
     .kicker { color: var(--brand); font-size: .75rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
     h2 { margin: 7px 0 10px; font-family: Georgia, 'Times New Roman', serif; font-size: 2rem; line-height: 1.08; }
     h3 { margin: 0 0 14px; font-size: 1.05rem; }
-    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 20px; }
     .metric { padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcf9; }
     .metric span { display: block; color: var(--muted); font-size: .73rem; text-transform: uppercase; }
     .metric strong { display: block; margin-top: 3px; font-size: 1.03rem; }
@@ -95,6 +95,15 @@ WEB_UI_HTML = r"""<!doctype html>
     .evidence { margin-top: 13px; padding-left: 13px; border-left: 3px solid var(--accent); }
     .evidence p { margin: 4px 0; }
     .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #e7f0eb; color: var(--brand-dark); font-size: .72rem; font-weight: 800; }
+    .summary-box { margin-top: 18px; padding: 16px; border-radius: 13px; background: #eef5f0; }
+    .summary-box strong { display: block; margin-bottom: 5px; }
+    .finding { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcf9; }
+    .finding[data-relation="CONTRADICTS"] { border-left: 5px solid var(--danger); }
+    .finding[data-relation="SUPPORTS"] { border-left: 5px solid var(--brand); }
+    .finding[data-relation="NEUTRAL"], .finding[data-relation="UNCERTAIN"] { border-left: 5px solid var(--accent); }
+    .finding blockquote { margin: 12px 0; padding-left: 14px; border-left: 3px solid var(--line); color: #304039; }
+    details { margin-top: 20px; }
+    summary { cursor: pointer; color: var(--brand); font-weight: 750; }
     ul { margin: 0; padding-left: 20px; }
     li + li { margin-top: 8px; }
     a { color: var(--brand); overflow-wrap: anywhere; }
@@ -147,54 +156,44 @@ WEB_UI_HTML = r"""<!doctype html>
     <section id="result" aria-live="polite">
       <div class="result-grid">
         <article class="panel result-card">
-          <div class="kicker">Síntese das evidências recuperadas</div>
+          <div class="kicker">Resposta em linguagem clara</div>
           <p id="extracted-claim" class="evidence"></p>
           <p id="claim-quote" class="evidence"></p>
           <h2 id="headline"></h2>
           <p id="summary"></p>
           <div class="metrics" id="metrics"></div>
+          <div class="summary-box">
+            <strong>Como interpretar</strong>
+            <span id="interpretation"></span>
+          </div>
         </article>
         <aside class="panel result-card">
-          <h3>Limitações importantes</h3>
-          <ul id="limitations"></ul>
+          <h3>O que conseguimos ler</h3>
+          <p id="reading-summary"></p>
+          <h3>Próximo passo recomendado</h3>
+          <p id="next-action"></p>
         </aside>
       </div>
-      <div class="verification-grid">
-        <article class="panel verification-card">
-          <div class="kicker">Cobertura da checagem</div>
-          <h3>Confiança da verificação</h3>
-          <div class="score" id="confidence-score"></div>
-          <p id="confidence-explanation"></p>
-          <ul id="confidence-components"></ul>
-        </article>
-        <article class="panel verification-card">
-          <div class="kicker">Cobertura</div>
-          <h3>Verificação parcial</h3>
-          <div class="score" id="verification-score"></div>
-          <p id="verification-explanation"></p>
-        </article>
-        <article class="panel verification-card">
-          <div class="kicker">Literatura agregada</div>
-          <h3>Meta-análises</h3>
-          <div class="score" id="meta-score"></div>
-          <p id="meta-explanation"></p>
-        </article>
-        <article class="panel verification-card">
-          <div class="kicker">Registro e resultados</div>
-          <h3>Ensaios clínicos</h3>
-          <div class="score" id="trials-score"></div>
-          <p id="trials-explanation"></p>
-        </article>
-      </div>
       <div class="panel result-card" style="margin-top: 20px">
-        <h3>Alertas da análise</h3>
+        <div class="kicker">Trechos que sustentam a comparação</div>
+        <h3>Evidências independentes encontradas</h3>
+        <div class="stack" id="findings"></div>
+      </div>
+      <div class="result-grid" style="margin-top: 20px">
+        <article class="panel result-card">
+          <h3>Limitações desta análise</h3>
+          <ul id="limitations"></ul>
+        </article>
+        <aside class="panel result-card">
+          <h3>Fontes para conferência manual</h3>
+          <ul id="sources"></ul>
+        </aside>
+      </div>
+      <details class="panel result-card">
+        <summary>Ver detalhes técnicos e alertas</summary>
+        <p id="technical-coverage"></p>
         <ul id="verification-alerts" class="alert-list"></ul>
-      </div>
-      <div class="stack" id="articles"></div>
-      <div class="panel result-card" style="margin-top: 20px">
-        <h3>Fontes apresentadas pelo sistema</h3>
-        <ul id="sources"></ul>
-      </div>
+      </details>
     </section>
 
     <footer>Protótipo acadêmico. O sistema avalia compatibilidade com o corpus recuperado, não uma verdade médica absoluta.</footer>
@@ -241,52 +240,56 @@ WEB_UI_HTML = r"""<!doctype html>
       return value == null ? 'Não avaliado' : `${Math.round(value)}%${suffix || ''}`;
     }
     function renderResult(data) {
-      const report = data.report || {}; const synthesis = data.synthesis || {};
+      const report = data.report || {};
       const verification = data.verification || {};
       const submitted = data.submitted_article || {};
+      const narrative = data.user_summary || {
+        headline: report.headline,
+        summary: report.summary,
+        claim: submitted.primary_claim,
+        interpretation: 'A saída técnica não trouxe um resumo consolidado.',
+        reading: {}, evidence_balance: {}, findings: [],
+        caveats: report.limitations || [], next_action: 'Confira as fontes manualmente.'
+      };
       const extractedClaim = document.getElementById('extracted-claim');
-      const sourceScope = submitted.content_scope ? ` [escopo: ${submitted.content_scope}]` : '';
-      extractedClaim.textContent = submitted.primary_claim ? `Alegação extraída do artigo${sourceScope}: ${submitted.primary_claim}` : '';
-      extractedClaim.style.display = submitted.primary_claim ? 'block' : 'none';
+      extractedClaim.textContent = narrative.claim ? `O artigo afirma: ${narrative.claim}` : '';
+      extractedClaim.style.display = narrative.claim ? 'block' : 'none';
       const claimQuote = document.getElementById('claim-quote');
       const submittedLocation = submitted.primary_claim_section
         ? ` — seção ${submitted.primary_claim_section}${submitted.primary_claim_page ? `, página ${submitted.primary_claim_page}` : ' (fonte sem paginação)'}`
         : (submitted.primary_claim_page ? ` — página ${submitted.primary_claim_page}` : '');
-      claimQuote.textContent = submitted.primary_claim_quote ? `Trecho do artigo: “${submitted.primary_claim_quote}”${submittedLocation}` : '';
+      claimQuote.textContent = submitted.primary_claim_quote ? `Trecho original: “${submitted.primary_claim_quote}”${submittedLocation}` : '';
       claimQuote.style.display = submitted.primary_claim_quote ? 'block' : 'none';
-      document.getElementById('headline').textContent = text(report.headline);
-      document.getElementById('summary').textContent = text(report.summary);
+      document.getElementById('headline').textContent = text(narrative.headline);
+      document.getElementById('summary').textContent = text(narrative.summary);
+      document.getElementById('interpretation').textContent = text(narrative.interpretation);
+      document.getElementById('next-action').textContent = text(narrative.next_action);
+
+      const reading = narrative.reading || {};
+      document.getElementById('reading-summary').textContent = text(reading.summary);
+
+      const balance = narrative.evidence_balance || {};
       const metrics = document.getElementById('metrics'); clearNode(metrics);
-      metric(metrics, 'Força', labels[synthesis.strength] || synthesis.strength);
-      metric(metrics, 'Direção', labels[synthesis.direction] || synthesis.direction);
-      metric(metrics, 'Artigos', synthesis.article_count ?? 0);
-      const articleAssessment = data.article_assessment || {};
-      if (articleAssessment.label) metric(metrics, 'Leitura do artigo', articleAssessment.label);
+      metric(metrics, 'Compatíveis', balance.SUPPORTS || 0);
+      metric(metrics, 'Divergentes', balance.CONTRADICTS || 0);
+      metric(metrics, 'Só contexto', balance.NEUTRAL || 0);
+      metric(metrics, 'Inconclusivos', balance.UNCERTAIN || 0);
 
       const limitations = document.getElementById('limitations'); clearNode(limitations);
-      (report.limitations || []).forEach(item => addTextElement(limitations, 'li', item));
+      (narrative.caveats || []).forEach(item => addTextElement(limitations, 'li', item));
 
       const partial = verification.partial_verification || {};
       const confidence = verification.confidence_index || {};
-      document.getElementById('confidence-score').textContent = confidence.score == null ? 'Não avaliado' : `${confidence.score}%`;
-      document.getElementById('confidence-explanation').textContent = text(confidence.explanation);
-      const confidenceComponents = document.getElementById('confidence-components'); clearNode(confidenceComponents);
-      (confidence.components || []).forEach(component => {
-        const li = document.createElement('li');
-        li.textContent = `${text(component.label)}: ${text(component.detail)}`;
-        confidenceComponents.appendChild(li);
-      });
-      document.getElementById('verification-score').textContent = percentage(partial.percentage);
-      const fullTextDetail = partial.full_text_percentage == null
-        ? ''
-        : ` Texto completo em ${Math.round(partial.full_text_percentage)}% dos artigos analisados (${partial.full_text_count || 0} de ${partial.verified_count || 0}).`;
-      document.getElementById('verification-explanation').textContent = text(partial.explanation) + fullTextDetail;
       const meta = verification.meta_analysis || {};
-      document.getElementById('meta-score').textContent = percentage(meta.compatibility_percentage, ' compatível');
-      document.getElementById('meta-explanation').textContent = text(meta.explanation);
       const trials = verification.clinical_trials || {};
-      document.getElementById('trials-score').textContent = trials.status === 'NOT_APPLICABLE' ? 'Não aplicável' : percentage(trials.registration_percentage, ' com registro');
-      document.getElementById('trials-explanation').textContent = text(trials.explanation);
+      const technicalParts = [
+        `Cobertura dos artigos recuperados: ${percentage(partial.percentage)}.`,
+        `Índice de cobertura da verificação: ${confidence.score == null ? 'não avaliado' : `${confidence.score}%`}.`,
+        `Meta-análises: ${text(meta.explanation)}.`,
+        `Ensaios clínicos: ${text(trials.explanation)}.`
+      ];
+      document.getElementById('technical-coverage').textContent = technicalParts.join(' ');
+
       const alerts = document.getElementById('verification-alerts'); clearNode(alerts);
       const alertItems = verification.alerts || [];
       if (!alertItems.length) addTextElement(alerts, 'li', 'Nenhum alerta automático foi produzido.');
@@ -300,27 +303,21 @@ WEB_UI_HTML = r"""<!doctype html>
         alerts.appendChild(li);
       });
 
-      const articles = document.getElementById('articles'); clearNode(articles);
-      (data.articles || []).forEach(item => {
-        const card = document.createElement('article'); card.className = 'panel article';
-        addTextElement(card, 'h3', item.title);
-        addTextElement(card, 'div', `${item.journal || 'Periódico não informado'} · ${item.publication_date || 'data não informada'} · ${item.access_level}`, 'article-meta');
-        (item.assessments || []).forEach(assessment => {
-          const evidence = document.createElement('div'); evidence.className = 'evidence';
-          const cited = assessment.evidence || {};
-          addTextElement(evidence, 'span', labels[assessment.relation] || assessment.relation, 'badge');
-          if (cited.text) addTextElement(evidence, 'p', `“${cited.text}”`);
-          const section = cited.section || (cited.content_scope === 'ABSTRACT' ? 'Abstract' : 'Seção não identificada');
-          const location = cited.page
-            ? `Esse trecho foi encontrado na seção ${section}, página ${cited.page}.`
-            : `Esse trecho foi encontrado na seção ${section}; a fonte não fornece paginação.`;
-          addTextElement(evidence, 'div', location, 'article-meta');
-          addTextElement(evidence, 'div', `Confiança do classificador: ${Math.round((assessment.confidence || 0) * 100)}%`, 'article-meta');
-          const evidenceUrl = safeUrl(cited.source_url);
-          if (evidenceUrl) { const link = document.createElement('a'); link.href = evidenceUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Abrir trecho na fonte'; evidence.appendChild(link); }
-          card.appendChild(evidence);
-        });
-        articles.appendChild(card);
+      const findings = document.getElementById('findings'); clearNode(findings);
+      if (!(narrative.findings || []).length) {
+        addTextElement(findings, 'p', 'Nenhum trecho independente pôde ser citado com segurança nesta execução.');
+      }
+      (narrative.findings || []).forEach(item => {
+        const card = document.createElement('article'); card.className = 'finding';
+        card.dataset.relation = item.relation || 'UNCERTAIN';
+        addTextElement(card, 'span', item.relation_label, 'badge');
+        addTextElement(card, 'h3', item.article_title);
+        addTextElement(card, 'div', `${item.publication_date || 'data não informada'} · ${item.scope_label}`, 'article-meta');
+        if (item.quote) addTextElement(card, 'blockquote', `“${item.quote}”`);
+        addTextElement(card, 'div', item.location, 'article-meta');
+        const url = safeUrl(item.source_url);
+        if (url) { const link = document.createElement('a'); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Conferir no artigo'; card.appendChild(link); }
+        findings.appendChild(card);
       });
 
       const sources = document.getElementById('sources'); clearNode(sources);

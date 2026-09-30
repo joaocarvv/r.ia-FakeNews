@@ -18,6 +18,7 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 - `notebooks/23_validacao_ingestao_liteparse.ipynb`: validação da leitura local de PDFs e da repetição segura de falhas temporárias do Gemini.
 - `notebooks/24_validacao_verificacao_artigo.ipynb`: validação da busca relacionada, compatibilidade textual e índice de cobertura da verificação.
 - `notebooks/25_validacao_texto_completo_rastreavel.ipynb`: validação da prioridade de texto completo, seções, tabelas e proveniência por página.
+- `notebooks/26_validacao_saida_coerente.ipynb`: validação da narrativa consolidada, dos denominadores e da abstenção apresentada ao usuário.
 - `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
 - `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
 - `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.

@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from .analysis_service import AnalysisServiceError
 from .api import AnalysisJobService, create_app
+from .result_presentation import build_user_summary
 
 
 DEMO_MODE_LABEL = (
@@ -135,7 +136,7 @@ class AcceptanceDemoRunner:
                 ],
             },
         ]
-        return {
+        result = {
             "input": {
                 "claim": claim,
                 "article_reference": article_reference,
@@ -199,6 +200,8 @@ class AcceptanceDemoRunner:
                 ],
             },
         }
+        result["user_summary"] = build_user_summary(result)
+        return result
 
 
 def create_acceptance_demo_app(*, delay: float = 0.8):

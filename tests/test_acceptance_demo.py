@@ -22,6 +22,8 @@ class AcceptanceDemoTests(unittest.TestCase):
             all("não científica" in source["label"] for source in result["report"]["sources"])
         )
         self.assertEqual(len(result["articles"]), 2)
+        self.assertEqual(result["user_summary"]["status"], "PREDOMINANTLY_COMPATIBLE")
+        self.assertIn("Nenhum artigo específico", result["user_summary"]["reading"]["summary"])
 
     def test_demo_rejects_claim_outside_its_controlled_topic(self):
         with self.assertRaises(AnalysisServiceError):

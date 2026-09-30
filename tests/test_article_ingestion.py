@@ -127,6 +127,10 @@ class ArticleIngestionTests(unittest.TestCase):
             "The treatment reduces symptoms in adults.",
         )
         self.assertEqual(
+            result["user_summary"]["claim"],
+            "The treatment reduces symptoms in adults.",
+        )
+        self.assertEqual(
             result["verification"]["alerts"][0]["code"],
             "ABSOLUTE_LANGUAGE_IN_ARTICLE",
         )

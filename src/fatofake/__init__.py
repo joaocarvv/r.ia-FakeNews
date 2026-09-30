@@ -163,6 +163,7 @@ from .retrieval import (
     RetrievedChunk,
     tokenize,
 )
+from .result_presentation import build_user_summary
 from .report_generation import (
     EvidenceReport,
     MethodologySummary,
@@ -276,6 +277,7 @@ __all__ = [
     "prepare_search_plan",
     "quality_profile_from_amstar",
     "build_claim_evidence_pairs",
+    "build_user_summary",
     "classify_claim_evidence_pairs",
     "chunk_article_content",
     "retrieve_article_content",

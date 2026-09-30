@@ -14,6 +14,7 @@ from .document_parsing import DocumentParsingError, LiteParseDocumentParser, Par
 from .input_validation import DOI_PATTERN, DOI_PREFIX_PATTERN, InputValidationError
 from .pmc import ContentRetrievalError, PmcClient, retrieve_article_content
 from .pubmed import PubMedClient, PubMedError
+from .result_presentation import build_user_summary
 from .verification_cards import build_verification_confidence
 
 
@@ -527,4 +528,5 @@ class ArticleFirstAnalysisRunner:
                 "A alegação principal foi extraída, mas não houve trechos independentes "
                 "suficientes para medir compatibilidade. Isso não indica informação falsa."
             )
+        result["user_summary"] = build_user_summary(result)
         return result

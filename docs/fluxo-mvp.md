@@ -115,6 +115,10 @@ Resultados neutros são apresentados como contexto relacionado, não como confir
 
 **Comprovação:** [`notebooks/25_validacao_texto_completo_rastreavel.ipynb`](../notebooks/25_validacao_texto_completo_rastreavel.ipynb).
 
+**Etapa concluída:** consolidar a saída técnica em uma narrativa orientada ao usuário: alegação analisada, alcance real da leitura, balanço entre compatibilidade e divergência, interpretação cautelosa, trechos rastreáveis, limitações e próximo passo. Métricas de cobertura, meta-análises, ensaios e alertas permanecem disponíveis em detalhes técnicos, sem competir com a mensagem principal.
+
+**Comprovação:** [`notebooks/26_validacao_saida_coerente.ipynb`](../notebooks/26_validacao_saida_coerente.ipynb).
+
 **Próxima etapa:** construir um conjunto prata para medir `Recall@K`, `Precision@K`, MRR, cobertura de texto completo e precisão da localização de seção/página em PDFs reais.
 
 ## Fluxo

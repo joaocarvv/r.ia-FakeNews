@@ -204,6 +204,10 @@ class RetrievalPreviewTests(unittest.TestCase):
             result["verification"]["meta_analysis"]["compatibility_percentage"],
             100,
         )
+        self.assertEqual(
+            result["user_summary"]["status"], "PREDOMINANTLY_COMPATIBLE"
+        )
+        self.assertIn("compatibilidade preliminar", result["user_summary"]["headline"].casefold())
         self.assertNotIn("verdadeir", str(result).casefold())
 
     def test_prioritizes_results_from_full_text_and_exposes_provenance(self):

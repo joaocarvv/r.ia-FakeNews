@@ -83,10 +83,10 @@ class ApiTests(unittest.TestCase):
         self.assertIn("/api/v1/article-analyses", page)
         self.assertIn("Imagem ou arquivo do artigo", page)
         self.assertIn("não oferece diagnóstico", page)
-        self.assertIn("Verificação parcial", page)
-        self.assertIn("Meta-análises", page)
-        self.assertIn("Ensaios clínicos", page)
-        self.assertIn("Alertas da análise", page)
+        self.assertIn("Resposta em linguagem clara", page)
+        self.assertIn("O que conseguimos ler", page)
+        self.assertIn("Evidências independentes encontradas", page)
+        self.assertIn("Ver detalhes técnicos e alertas", page)
 
     def test_creates_job_and_returns_completed_result(self):
         runner = RunnerStub()

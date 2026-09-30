@@ -42,6 +42,7 @@ from .input_validation import validate_analysis_input
 from .pmc import ContentRetrievalError, PmcClient
 from .pubmed import PubMedClient, PubMedError
 from .retrieval import Bm25Index, RetrievalError
+from .result_presentation import build_user_summary
 from .search_preparation import SearchPlan, prepare_search_plan
 from .verification_cards import (
     build_abstract_analysis_cards,
@@ -607,7 +608,7 @@ class RetrievalPreviewRunner:
             }
             for work in works
         ]
-        return {
+        response = {
             "input": {
                 "claim": analysis_input.claim,
                 "article_reference": analysis_input.article_reference,
@@ -702,6 +703,8 @@ class RetrievalPreviewRunner:
                 )
             ),
         }
+        response["user_summary"] = build_user_summary(response)
+        return response
 
 
 def create_live_retrieval_app(*, project_root: Path | None = None):
