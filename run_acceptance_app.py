@@ -1,5 +1,4 @@
-"""Inicia o protótipo local usado no teste de aceitação."""
-
+import os
 from pathlib import Path
 import sys
 
@@ -12,6 +11,9 @@ from fatofake.retrieval_preview import create_live_retrieval_app
 
 if __name__ == "__main__":
     application = create_live_retrieval_app(project_root=ROOT)
-    print("Fato ou Fake? disponível em http://127.0.0.1:5000")
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "5000"))
+    display_host = "127.0.0.1" if host == "0.0.0.0" else host
+    print(f"Fato ou Fake? disponível em http://{display_host}:{port}")
     print("Modo real: busca científica e análise preliminar de abstracts com Gemini.")
-    application.run(host="127.0.0.1", port=5000, debug=False)
+    application.run(host=host, port=port, debug=False)

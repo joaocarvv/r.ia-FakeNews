@@ -54,21 +54,27 @@ Essa opção substitui os passos 2 e 6 e garante o mesmo ambiente em qualquer m�
    cp .env.example .env
    ```
 
-2. Construa a imagem e suba o container:
+2. Construa a imagem e suba os serviços:
 
    ```bash
+   # Para subir a API e Interface Web (porta 5001):
+   docker compose up --build app
+
+   # Ou para subir ambos (API na 5001 e JupyterLab na 8888):
    docker compose up --build
    ```
 
-3. Acesse o JupyterLab em [http://localhost:8888](http://localhost:8888).
+3. Acesse no navegador:
+   - **Interface Web e API**: [http://localhost:5001](http://localhost:5001)
+   - **JupyterLab**: [http://localhost:8888](http://localhost:8888)
 
 Para rodar os testes dentro do container:
 
 ```bash
-docker compose run app pytest tests/
+docker compose run app python -m unittest discover tests/
 ```
 
-Para parar o container:
+Para parar os containers:
 
 ```bash
 docker compose down

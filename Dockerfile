@@ -33,22 +33,19 @@ RUN pip install --no-cache-dir \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ── Código-fonte e notebooks ──────────────────────────────────────
+# ── Código-fonte, dados e notebooks ───────────────────────────────
 COPY src/ ./src/
 COPY notebooks/ ./notebooks/
+COPY data/ ./data/
+COPY run_acceptance_app.py ./
 COPY .env.example ./
 
 # Torna o pacote fatofake importável
 ENV PYTHONPATH="/app/src:${PYTHONPATH}"
 
-# ── Porta e entrypoint ────────────────────────────────────────────
-EXPOSE 8888
+# ── Portas e entrypoint ───────────────────────────────────────────
+# 5000: API HTTP e Interface Web
+# 8888: JupyterLab
+EXPOSE 5000 8888
 
-CMD ["jupyter", "lab", \
-     "--ip=0.0.0.0", \
-     "--port=8888", \
-     "--no-browser", \
-     "--allow-root", \
-     "--NotebookApp.token=''", \
-     "--NotebookApp.password=''", \
-     "--notebook-dir=/app/notebooks"]
+CMD ["python", "run_acceptance_app.py"]
