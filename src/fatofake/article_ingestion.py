@@ -14,6 +14,7 @@ from .document_parsing import DocumentParsingError, LiteParseDocumentParser
 from .input_validation import DOI_PATTERN, DOI_PREFIX_PATTERN, InputValidationError
 from .pmc import ContentRetrievalError, PmcClient
 from .pubmed import PubMedClient, PubMedError
+from .verification_cards import build_verification_confidence
 
 
 MAX_ARTICLE_FILE_BYTES = 10 * 1024 * 1024
@@ -47,6 +48,8 @@ class ExtractedArticle:
     additional_claims: tuple[str, ...]
     absolute_language: tuple[str, ...]
     extraction_model: str
+    primary_claim_quote: str | None = None
+    research_context: str = "UNKNOWN"
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,7 @@ class ResolvedArticleDocument:
     title: str | None
     doi: str | None
     text: str
+    pmid: str | None = None
     parser_name: str = "scientific-api"
     page_count: int | None = None
 
@@ -111,7 +115,7 @@ class PubMedReferenceResolver:
             submission.reference if submission.reference_type == "doi" else None
         )
         text = f"Título: {title}\n\nAbstract: {abstract}" if title else abstract
-        return ResolvedArticleDocument(title=title, doi=doi, text=text)
+        return ResolvedArticleDocument(title=title, doi=doi, text=text, pmid=pmid)
 
 
 def _normalize_reference(value: str) -> tuple[str, str]:
@@ -177,7 +181,18 @@ class GeminiArticleExtractor:
                 "title": {"type": "STRING"},
                 "doi": {"type": "STRING"},
                 "primary_claim": {"type": "STRING"},
+                "primary_claim_quote": {"type": "STRING"},
                 "search_query": {"type": "STRING"},
+                "research_context": {
+                    "type": "STRING",
+                    "enum": [
+                        "BASIC_SCIENCE",
+                        "CLINICAL",
+                        "EPIDEMIOLOGICAL",
+                        "SYSTEMATIC_REVIEW",
+                        "UNKNOWN",
+                    ],
+                },
                 "additional_claims": {"type": "ARRAY", "items": {"type": "STRING"}},
                 "absolute_language": {"type": "ARRAY", "items": {"type": "STRING"}},
             },
@@ -185,7 +200,9 @@ class GeminiArticleExtractor:
                 "title",
                 "doi",
                 "primary_claim",
+                "primary_claim_quote",
                 "search_query",
+                "research_context",
                 "additional_claims",
                 "absolute_language",
             ],
@@ -206,6 +223,9 @@ class GeminiArticleExtractor:
             "quando título ou DOI não estiverem disponíveis. Em search_query, produza "
             "uma consulta curta em inglês com apenas população, intervenção/exposição "
             "e desfecho, sem dose, percentuais ou a conclusão do artigo."
+            " Em primary_claim_quote, copie literalmente o menor trecho do documento "
+            "que sustenta a alegação extraída. Classifique research_context conforme "
+            "o desenho do artigo; BASIC_SCIENCE não deve ser tratado como ensaio clínico."
         )
         parts: list[dict[str, Any]] = [{"text": prompt}]
         payload: dict[str, Any] = {
@@ -270,6 +290,20 @@ class GeminiArticleExtractor:
         )
         if doi and not DOI_PATTERN.fullmatch(doi):
             doi = None
+        quote = " ".join(str(decoded.get("primary_claim_quote") or "").split())[:1000]
+        if resolved is not None and quote:
+            normalized_source = " ".join(resolved.text.split())
+            if quote not in normalized_source:
+                quote = ""
+        research_context = str(decoded.get("research_context") or "UNKNOWN").upper()
+        if research_context not in {
+            "BASIC_SCIENCE",
+            "CLINICAL",
+            "EPIDEMIOLOGICAL",
+            "SYSTEMATIC_REVIEW",
+            "UNKNOWN",
+        }:
+            research_context = "UNKNOWN"
         return ExtractedArticle(
             title=title,
             doi=doi,
@@ -278,6 +312,8 @@ class GeminiArticleExtractor:
             additional_claims=additional,
             absolute_language=absolute,
             extraction_model=self.gateway.model_name,
+            primary_claim_quote=quote or None,
+            research_context=research_context,
         )
 
 
@@ -289,6 +325,7 @@ class IndependentEvidenceRunner(Protocol):
         *,
         excluded_dois: tuple[str, ...] = (),
         query_override: str | None = None,
+        related_seed_pmids: tuple[str, ...] = (),
     ) -> Mapping[str, Any]: ...
 
 
@@ -338,6 +375,7 @@ class ArticleFirstAnalysisRunner:
                 None,
                 excluded_dois=excluded,
                 query_override=extracted.search_query,
+                related_seed_pmids=(resolved.pmid,) if resolved and resolved.pmid else (),
             )
         )
         result["input"] = {
@@ -353,11 +391,30 @@ class ArticleFirstAnalysisRunner:
             "additional_claims": list(extracted.additional_claims),
             "absolute_language": list(extracted.absolute_language),
             "extraction_model": extracted.extraction_model,
+            "primary_claim_quote": extracted.primary_claim_quote,
+            "research_context": extracted.research_context,
             "excluded_from_independent_evidence": bool(extracted.doi),
             "document_parser": resolved.parser_name if resolved else "gemini-multimodal",
             "page_count": resolved.page_count if resolved else None,
         }
         verification = dict(result.get("verification") or {})
+        verification["confidence_index"] = build_verification_confidence(
+            articles=tuple(result.get("articles") or ()),
+            research_context=extracted.research_context,
+        )
+        if extracted.research_context != "CLINICAL":
+            verification["clinical_trials"] = {
+                "status": "NOT_APPLICABLE",
+                "registration_percentage": None,
+                "registered_count": 0,
+                "eligible_count": 0,
+                "with_results_count": 0,
+                "explanation": (
+                    "O artigo foi classificado como "
+                    f"{extracted.research_context.lower().replace('_', ' ')}; "
+                    "a exigência de registro no ClinicalTrials.gov não se aplica a esse desenho."
+                ),
+            }
         alerts = [
             item
             for item in (verification.get("alerts") or [])
@@ -388,4 +445,32 @@ class ArticleFirstAnalysisRunner:
             )
         verification["alerts"] = alerts
         result["verification"] = verification
+        synthesis = result.get("synthesis") or {}
+        direction = synthesis.get("direction", "NEUTRAL")
+        assessment_by_direction = {
+            "SUPPORTS": ("COMPATIBLE", "Compatível com os trechos independentes analisados"),
+            "CONTRADICTS": ("POTENTIAL_TENSION", "Possível incompatibilidade com evidência independente"),
+            "MIXED": ("MIXED", "Evidências independentes divergentes"),
+            "NEUTRAL": (
+                "CONTEXT_ONLY",
+                "Contexto relacionado encontrado, sem confirmação direta",
+            ),
+        }
+        status, label = assessment_by_direction.get(
+            direction, assessment_by_direction["NEUTRAL"]
+        )
+        result["article_assessment"] = {
+            "status": status,
+            "label": label,
+            "explanation": (
+                "Este rótulo expressa compatibilidade com os trechos recuperados, "
+                "não determina que o artigo seja verdadeiro ou falso."
+            ),
+        }
+        if result.get("report", {}).get("conclusion") == "INSUFFICIENT_EVIDENCE":
+            result["report"]["headline"] = "Artigo processado; comparação externa limitada"
+            result["report"]["summary"] = (
+                "A alegação principal foi extraída, mas não houve trechos independentes "
+                "suficientes para medir compatibilidade. Isso não indica informação falsa."
+            )
         return result

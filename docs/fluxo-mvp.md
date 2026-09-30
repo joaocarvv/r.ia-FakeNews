@@ -105,6 +105,12 @@ O uso de SciELO via OpenAlex é explicitado na proveniência. O ArticleMeta perm
 
 Essa etapa cria a base de ingestão para uma experiência semelhante ao NotebookLM, mas ainda não implementa uma biblioteca persistente de múltiplos documentos nem perguntas conversacionais sobre o acervo.
 
+**Etapa concluída:** corrigir a busca temática no OpenAlex, expandir links PubMed com os vizinhos computacionais oficiais do ELink e separar compatibilidade textual de confiança na cobertura da verificação. O índice considera cobertura dos abstracts, quantidade de comparações diretas, atualidade, citações e ramificação; ensaios clínicos são marcados como não aplicáveis quando o artigo é de ciência básica.
+
+**Comprovação:** [`notebooks/24_validacao_verificacao_artigo.ipynb`](../notebooks/24_validacao_verificacao_artigo.ipynb).
+
+Resultados neutros são apresentados como contexto relacionado, não como confirmação. A interface nunca interpreta o índice como probabilidade de verdade nem rotula automaticamente o artigo como verdadeiro ou falso.
+
 **Próxima etapa:** criar a biblioteca de fontes da análise, fragmentar cada documento com proveniência de página e responder perguntas apenas com citações dos trechos recuperados. Em paralelo, construir um conjunto prata para medir `Recall@K`, `Precision@K`, MRR, cobertura e duplicação residual.
 
 ## Fluxo

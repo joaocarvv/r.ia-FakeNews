@@ -11,6 +11,7 @@ from fatofake import (
     RetrievalError,
     ScientificWork,
     SourceRank,
+    Publication,
 )
 from fatofake.retrieval_preview import GenericHealthQueryPlanner, RetrievalPreviewRunner
 from fatofake.gemini_evidence import GeminiEvidenceAssessment
@@ -43,6 +44,48 @@ class ProviderStub:
 
 
 class RetrievalPreviewTests(unittest.TestCase):
+    def test_expands_a_submitted_pubmed_article_with_related_records(self):
+        class RelatedClientStub:
+            def related_ids(self, pmid, *, max_results):
+                self.seed = pmid
+                return ("32596956",)
+
+            def fetch_summaries(self, identifiers, matched_queries):
+                return (
+                    Publication(
+                        pmid="32596956",
+                        title="Activation of rhodopsin by water",
+                        authors=("Author",),
+                        journal="Journal",
+                        publication_date="2020",
+                        doi="10.1000/related",
+                        url="https://pubmed.ncbi.nlm.nih.gov/32596956/",
+                        matched_queries=matched_queries["32596956"],
+                    ),
+                )
+
+        related = RelatedClientStub()
+        runner = RetrievalPreviewRunner(
+            FederatedSearchEngine((ProviderStub("PubMed"),)),
+            related_client=related,
+        )
+
+        result = runner.analyze(
+            "Water affects rhodopsin activation.",
+            related_seed_pmids=("39550612",),
+        )
+
+        self.assertEqual(related.seed, "39550612")
+        self.assertTrue(
+            any(
+                item["source"] == "PubMed relacionados"
+                for item in result["search"]["query_results"]
+            )
+        )
+        self.assertTrue(
+            any(item["pmid"] == "32596956" for item in result["articles"])
+        )
+
     def test_planner_accepts_different_health_topics(self):
         class TranslatorStub:
             def translate(self, text):

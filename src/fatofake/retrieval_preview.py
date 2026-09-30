@@ -29,10 +29,15 @@ from .federated_search import (
     OpenAlexSearchProvider,
     PubMedSearchProvider,
     ScieloSearchProvider,
+    ScientificWork,
+    SourceRank,
+    deduplicate_works,
+    normalize_doi,
+    normalize_pmid,
 )
 from .input_validation import validate_analysis_input
 from .pmc import ContentRetrievalError, PmcClient
-from .pubmed import PubMedClient
+from .pubmed import PubMedClient, PubMedError
 from .search_preparation import SearchPlan, prepare_search_plan
 from .verification_cards import (
     build_abstract_analysis_cards,
@@ -184,6 +189,7 @@ class RetrievalPreviewRunner:
         planner: GenericHealthQueryPlanner | None = None,
         abstract_client: PmcClient | None = None,
         evidence_analyzer: GeminiEvidenceAnalyzer | None = None,
+        related_client: PubMedClient | None = None,
         max_results_per_query: int = 5,
         max_analysis_articles: int = 5,
     ) -> None:
@@ -193,8 +199,50 @@ class RetrievalPreviewRunner:
         self.planner = planner or GenericHealthQueryPlanner()
         self.abstract_client = abstract_client
         self.evidence_analyzer = evidence_analyzer
+        self.related_client = related_client
         self.max_results_per_query = max_results_per_query
         self.max_analysis_articles = max_analysis_articles
+
+    def _related_works(
+        self, seed_pmids: Sequence[str]
+    ) -> tuple[tuple[ScientificWork, ...], tuple[str, ...]]:
+        if self.related_client is None or not seed_pmids:
+            return (), ()
+        works: list[ScientificWork] = []
+        failures: list[str] = []
+        for seed_pmid in dict.fromkeys(seed_pmids):
+            try:
+                identifiers = self.related_client.related_ids(
+                    seed_pmid, max_results=self.max_results_per_query
+                )
+                publications = self.related_client.fetch_summaries(
+                    identifiers,
+                    {identifier: (f"related:{seed_pmid}",) for identifier in identifiers},
+                )
+            except PubMedError as error:
+                failures.append(str(error))
+                continue
+            for rank, item in enumerate(publications, start=1):
+                works.append(
+                    ScientificWork(
+                        title=item.title,
+                        authors=item.authors,
+                        journal=item.journal,
+                        publication_date=item.publication_date,
+                        doi=normalize_doi(item.doi),
+                        pmid=normalize_pmid(item.pmid),
+                        url=item.url,
+                        matched_queries=(f"related:{seed_pmid}",),
+                        sources=("PubMed relacionados",),
+                        source_ids=(("PubMed relacionados", item.pmid),),
+                        source_ranks=(
+                            SourceRank(
+                                "PubMed relacionados", f"related:{seed_pmid}", rank
+                            ),
+                        ),
+                    )
+                )
+        return tuple(works), tuple(failures)
 
     def _analyze_abstracts(
         self,
@@ -241,6 +289,7 @@ class RetrievalPreviewRunner:
         *,
         excluded_dois: Sequence[str] = (),
         query_override: str | None = None,
+        related_seed_pmids: Sequence[str] = (),
     ) -> Mapping[str, Any]:
         analysis_input = validate_analysis_input(claim, article_reference)
         if query_override:
@@ -272,12 +321,22 @@ class RetrievalPreviewRunner:
                 "As fontes científicas não responderam. Tente novamente em alguns instantes."
             ) from error
 
+        related_works, related_failures = self._related_works(related_seed_pmids)
+        all_works = deduplicate_works(
+            (*result.works, *related_works),
+            source_order=(
+                "PubMed",
+                "PubMed relacionados",
+                "OpenAlex",
+                "SciELO (via OpenAlex)",
+            ),
+        )
         normalized_exclusions = {
             item.strip().casefold() for item in excluded_dois if item.strip()
         }
         works = tuple(
             work
-            for work in result.works
+            for work in all_works
             if not work.doi or work.doi.strip().casefold() not in normalized_exclusions
         )
 
@@ -337,6 +396,8 @@ class RetrievalPreviewRunner:
                     "sources": list(work.sources),
                     "score": work.retrieval_score,
                     "matched_queries": list(work.matched_queries),
+                    "citation_count": work.citation_count,
+                    "related_work_count": work.related_work_count,
                 },
             }
             for work in works
@@ -365,6 +426,10 @@ class RetrievalPreviewRunner:
             )
         if analysis_failure:
             limitations.append(analysis_failure)
+        if related_failures:
+            limitations.append(
+                "A expansão por artigos relacionados do PubMed falhou parcialmente."
+            )
 
         usable = tuple(item for item in assessments if item.relation != "UNCERTAIN")
         relation_counts = {
@@ -442,11 +507,23 @@ class RetrievalPreviewRunner:
                         "retrieved_count": item.retrieved_count,
                     }
                     for item in result.query_results
-                ],
-                "candidate_count": len(result.publications),
+                ]
+                + (
+                    [
+                        {
+                            "source": "PubMed relacionados",
+                            "query": ", ".join(related_seed_pmids),
+                            "total_matches": len(related_works),
+                            "retrieved_count": len(related_works),
+                        }
+                    ]
+                    if related_seed_pmids
+                    else []
+                ),
+                "candidate_count": len(all_works),
                 "unique_work_count": len(works),
                 "unresolved_work_count": len(result.unresolved_works),
-                "source_failure_count": len(result.failures),
+                "source_failure_count": len(result.failures) + len(related_failures),
             },
             "articles": articles,
             "failures": [
@@ -456,6 +533,14 @@ class RetrievalPreviewRunner:
                     "reason": item.reason,
                 }
                 for item in result.failures
+            ]
+            + [
+                {
+                    "source": "PubMed relacionados",
+                    "query": ", ".join(related_seed_pmids),
+                    "reason": reason,
+                }
+                for reason in related_failures
             ],
             "synthesis": {
                 "direction": direction,
@@ -549,6 +634,7 @@ def create_live_retrieval_app(*, project_root: Path | None = None):
         planner=GenericHealthQueryPlanner(translator),
         abstract_client=pmc_client,
         evidence_analyzer=evidence_analyzer,
+        related_client=pubmed_client,
     )
     try:
         document_parser = LiteParseDocumentParser(

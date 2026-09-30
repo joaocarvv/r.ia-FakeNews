@@ -55,6 +55,8 @@ class ScientificWork:
     source_ids: tuple[tuple[str, str], ...]
     source_ranks: tuple[SourceRank, ...]
     retrieval_score: float = 0.0
+    citation_count: int | None = None
+    related_work_count: int | None = None
 
     def to_publication(self) -> Publication | None:
         """Converte apenas trabalhos vinculados ao PubMed para o fluxo atual."""
@@ -267,6 +269,22 @@ def deduplicate_works(
                     source_ids=source_ids,
                     source_ranks=source_ranks,
                     retrieval_score=score,
+                    citation_count=max(
+                        (
+                            record.citation_count
+                            for record in records
+                            if record.citation_count is not None
+                        ),
+                        default=None,
+                    ),
+                    related_work_count=max(
+                        (
+                            record.related_work_count
+                            for record in records
+                            if record.related_work_count is not None
+                        ),
+                        default=None,
+                    ),
                 ),
             )
         )
@@ -379,7 +397,7 @@ class OpenAlexClient:
         params = {
             "search": query,
             "per_page": str(max_results),
-            "sort": "-relevance_score",
+            "sort": "relevance_score:desc",
         }
         if source_filter:
             params["filter"] = source_filter
@@ -451,6 +469,12 @@ class OpenAlexSearchProvider:
         publication_date = self._text(item.get("publication_date"))
         if not publication_date and item.get("publication_year"):
             publication_date = str(item["publication_year"])
+        try:
+            citation_count = max(0, int(item.get("cited_by_count", 0)))
+        except (TypeError, ValueError):
+            citation_count = None
+        related_works = item.get("related_works")
+        related_work_count = len(related_works) if isinstance(related_works, list) else None
         return ScientificWork(
             title=title,
             authors=tuple(authors),
@@ -463,6 +487,8 @@ class OpenAlexSearchProvider:
             sources=(self.name,),
             source_ids=((self.name, openalex_id),),
             source_ranks=(SourceRank(self.name, query, rank),),
+            citation_count=citation_count,
+            related_work_count=related_work_count,
         )
 
     def search(self, query: str, *, max_results: int) -> ProviderSearchResult:

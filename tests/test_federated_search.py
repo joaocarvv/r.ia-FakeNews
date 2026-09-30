@@ -163,7 +163,7 @@ class OpenAlexProviderTests(unittest.TestCase):
         self.assertEqual(result.works[0].pmid, "12345")
         self.assertEqual(result.works[0].doi, "10.1000/coffee")
         self.assertEqual(result.works[0].authors, ("Ana Silva",))
-        self.assertEqual(calls[0][1]["sort"], "-relevance_score")
+        self.assertEqual(calls[0][1]["sort"], "relevance_score:desc")
 
     def test_scielo_provider_uses_official_openalex_source_list_filter(self):
         calls = []

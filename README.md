@@ -226,6 +226,9 @@ extração das alegações; links do PubMed são resolvidos diretamente pelas AP
 NCBI. Com `GEMINI_API_KEY` configurada, a aplicação extrai a alegação principal,
 busca evidências independentes e valida se os trechos citados existem nos abstracts
 originais. A análise mede compatibilidade, nunca declara o artigo verdadeiro ou falso.
+Para links do PubMed, a recuperação combina busca temática e artigos relacionados
+do ELink. O índice de confiança apresentado mede cobertura da verificação — textos
+analisados, atualidade, citações e ramificação — e não a chance de o artigo estar correto.
 
 ## 9. Solução de problemas
 

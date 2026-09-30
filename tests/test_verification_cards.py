@@ -11,6 +11,7 @@ from fatofake.verification_cards import (
     build_abstract_analysis_cards,
     build_unassessed_cards,
     detect_language_alerts,
+    build_verification_confidence,
 )
 
 
@@ -19,6 +20,25 @@ def namespace(**values):
 
 
 class VerificationCardsTests(unittest.TestCase):
+    def test_confidence_index_measures_coverage_not_truth(self):
+        result = build_verification_confidence(
+            research_context="BASIC_SCIENCE",
+            articles=(
+                {
+                    "publication_date": "2025",
+                    "assessments": [{"relation": "SUPPORTS"}],
+                    "retrieval": {
+                        "sources": ["PubMed", "OpenAlex"],
+                        "citation_count": 12,
+                        "related_work_count": 8,
+                    },
+                },
+            ),
+        )
+
+        self.assertGreater(result["score"], 0)
+        self.assertIn("Não é a probabilidade", result["explanation"])
+        self.assertEqual(result["components"][-1]["status"], "NOT_APPLICABLE")
     def test_unassessed_retrieval_never_invents_a_percentage(self):
         result = build_unassessed_cards(
             claim="A vitamina C reduz resfriados?",

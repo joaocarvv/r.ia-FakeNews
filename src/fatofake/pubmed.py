@@ -123,6 +123,37 @@ class PubMedClient:
 
         return total, identifiers
 
+    def related_ids(self, pmid: str, *, max_results: int = 10) -> tuple[str, ...]:
+        """Retorna vizinhos computacionais do PubMed, sem o artigo-semente."""
+
+        if not pmid.isdigit():
+            raise ValueError("O PMID deve conter somente dígitos.")
+        if not 1 <= max_results <= 100:
+            raise ValueError("max_results deve estar entre 1 e 100.")
+        params = self._common_params()
+        params.update({"dbfrom": "pubmed", "id": pmid, "cmd": "neighbor"})
+        payload = self._fetch_json("elink.fcgi", params)
+        try:
+            linksets = payload.get("linksets") or []
+            databases = linksets[0].get("linksetdbs") or []
+        except (AttributeError, IndexError, TypeError) as error:
+            raise PubMedError("Resposta ELink inválida ou incompleta.") from error
+
+        links: list[str] = []
+        for name in ("pubmed_pubmed_five", "pubmed_pubmed"):
+            for database in databases:
+                if database.get("linkname") != name:
+                    continue
+                for identifier in database.get("links") or []:
+                    normalized = str(identifier)
+                    if normalized != pmid and normalized not in links:
+                        links.append(normalized)
+                    if len(links) == max_results:
+                        return tuple(links)
+            if links:
+                break
+        return tuple(links)
+
     def fetch_summaries(
         self,
         identifiers: tuple[str, ...],

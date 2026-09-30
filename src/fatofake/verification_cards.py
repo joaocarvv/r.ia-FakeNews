@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import math
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Any, Sequence
 
 
@@ -23,6 +25,134 @@ def _percentage(numerator: int, denominator: int) -> int | None:
     if denominator <= 0:
         return None
     return round(100 * numerator / denominator)
+
+
+def build_verification_confidence(
+    *,
+    articles: Sequence[dict[str, Any]],
+    research_context: str,
+) -> dict[str, Any]:
+    """Índice de cobertura da checagem; não estima probabilidade de verdade."""
+
+    total = len(articles)
+    assessed_articles = tuple(item for item in articles if item.get("assessments"))
+    assessed = len(assessed_articles)
+    usable = sum(
+        any(
+            assessment.get("relation") in {"SUPPORTS", "CONTRADICTS"}
+            for assessment in item.get("assessments", ())
+        )
+        for item in assessed_articles
+    )
+    contextual = sum(
+        any(assessment.get("relation") == "NEUTRAL" for assessment in item.get("assessments", ()))
+        for item in assessed_articles
+    )
+    current_year = datetime.now(timezone.utc).year
+    years: list[int] = []
+    citation_total = 0
+    known_citations = 0
+    network_total = 0
+    known_network = 0
+    sources: set[str] = set()
+    for item in assessed_articles:
+        match = re.search(r"\b(?:19|20)\d{2}\b", str(item.get("publication_date") or ""))
+        if match:
+            years.append(int(match.group(0)))
+        retrieval = item.get("retrieval") or {}
+        sources.update(str(source) for source in retrieval.get("sources") or ())
+        citations = retrieval.get("citation_count")
+        if citations is not None:
+            citation_total += max(0, int(citations))
+            known_citations += 1
+        related = retrieval.get("related_work_count")
+        if related is not None:
+            network_total += max(0, int(related))
+            known_network += 1
+
+    recent_ratio = (
+        sum(year >= current_year - 10 for year in years) / len(years) if years else 0
+    )
+    components = [
+        {
+            "code": "ANALYSIS_COVERAGE",
+            "label": "Cobertura dos textos",
+            "points": round(30 * assessed / total, 1) if total else 0.0,
+            "maximum": 30,
+            "detail": f"{assessed} de {total} artigos tiveram abstract analisado.",
+            "status": "AVAILABLE" if total else "MISSING",
+        },
+        {
+            "code": "INDEPENDENT_EVIDENCE",
+            "label": "Volume de evidência independente",
+            "points": min(20.0, usable * 4.0),
+            "maximum": 20,
+            "detail": (
+                f"{usable} artigo(s) compararam diretamente a alegação; "
+                f"{contextual} forneceram apenas contexto relacionado."
+            ),
+            "status": "AVAILABLE" if usable else "MISSING",
+        },
+        {
+            "code": "RECENCY",
+            "label": "Atualidade das publicações",
+            "points": round(15 * recent_ratio, 1),
+            "maximum": 15,
+            "detail": f"{len(years)} publicação(ões) tinham ano identificável.",
+            "status": "AVAILABLE" if years else "MISSING",
+        },
+        {
+            "code": "CITATIONS",
+            "label": "Contexto de citações",
+            "points": min(15.0, round(math.log10(1 + citation_total) * 5, 1)),
+            "maximum": 15,
+            "detail": (
+                f"{citation_total} citação(ões) registradas em {known_citations} artigo(s)."
+                if known_citations
+                else "Contagens de citações não foram recuperadas."
+            ),
+            "status": "AVAILABLE" if known_citations else "MISSING",
+        },
+        {
+            "code": "RESEARCH_NETWORK",
+            "label": "Ramificação e diversidade",
+            "points": min(10.0, len(sources) * 2.0 + min(network_total, 20) * 0.2),
+            "maximum": 10,
+            "detail": (
+                f"{len(sources)} fonte(s); ramificações conhecidas para {known_network} artigo(s)."
+            ),
+            "status": "AVAILABLE" if sources else "MISSING",
+        },
+    ]
+    clinical_applicable = research_context == "CLINICAL"
+    trial_component = {
+        "code": "CLINICAL_TRIALS",
+        "label": "Ensaios clínicos",
+        "points": 0.0,
+        "maximum": 10,
+        "detail": (
+            "Aplicável, mas registros e resultados ainda não foram confirmados."
+            if clinical_applicable
+            else "Não aplicável ao desenho identificado para o artigo."
+        ),
+        "status": "MISSING" if clinical_applicable else "NOT_APPLICABLE",
+    }
+    components.append(trial_component)
+    applicable = [item for item in components if item["status"] != "NOT_APPLICABLE"]
+    maximum = sum(float(item["maximum"]) for item in applicable)
+    points = sum(float(item["points"]) for item in applicable)
+    score = round(100 * points / maximum) if maximum else 0
+    level = "HIGH" if score >= 75 else "MODERATE" if score >= 50 else "LOW"
+    return {
+        "score": score,
+        "level": level,
+        "label": "confiança da verificação",
+        "explanation": (
+            "Mede quanto da checagem foi coberto por dados recuperados. "
+            "Não é a probabilidade de o artigo estar correto."
+        ),
+        "components": components,
+    }
 
 
 def detect_language_alerts(claim: str) -> list[dict[str, Any]]:

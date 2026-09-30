@@ -82,7 +82,7 @@ WEB_UI_HTML = r"""<!doctype html>
     .metric span { display: block; color: var(--muted); font-size: .73rem; text-transform: uppercase; }
     .metric strong { display: block; margin-top: 3px; font-size: 1.03rem; }
     .stack { display: grid; gap: 16px; margin-top: 20px; }
-    .verification-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 20px; }
+    .verification-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 20px; }
     .verification-card { padding: 20px; }
     .score { margin: 4px 0 8px; color: var(--brand-dark); font-family: Georgia, 'Times New Roman', serif; font-size: 2rem; font-weight: 700; }
     .score small { color: var(--muted); font: 500 .78rem Arial, Helvetica, sans-serif; }
@@ -149,6 +149,7 @@ WEB_UI_HTML = r"""<!doctype html>
         <article class="panel result-card">
           <div class="kicker">Síntese das evidências recuperadas</div>
           <p id="extracted-claim" class="evidence"></p>
+          <p id="claim-quote" class="evidence"></p>
           <h2 id="headline"></h2>
           <p id="summary"></p>
           <div class="metrics" id="metrics"></div>
@@ -159,6 +160,13 @@ WEB_UI_HTML = r"""<!doctype html>
         </aside>
       </div>
       <div class="verification-grid">
+        <article class="panel verification-card">
+          <div class="kicker">Cobertura da checagem</div>
+          <h3>Confiança da verificação</h3>
+          <div class="score" id="confidence-score"></div>
+          <p id="confidence-explanation"></p>
+          <ul id="confidence-components"></ul>
+        </article>
         <article class="panel verification-card">
           <div class="kicker">Cobertura</div>
           <h3>Verificação parcial</h3>
@@ -203,7 +211,8 @@ WEB_UI_HTML = r"""<!doctype html>
 
     const labels = {
       SUPPORTS: 'Apoia', CONTRADICTS: 'Contradiz', NEUTRAL: 'Neutra', UNCERTAIN: 'Incerta',
-      LOW: 'Baixa', MODERATE: 'Moderada', INSUFFICIENT: 'Insuficiente', MIXED: 'Conflitante'
+      LOW: 'Baixa', MODERATE: 'Moderada', HIGH: 'Alta', INSUFFICIENT: 'Limitada',
+      MIXED: 'Conflitante', NOT_APPLICABLE: 'Não aplicável'
     };
     const text = value => value == null ? 'Não informado' : String(value);
     const safeUrl = value => {
@@ -238,24 +247,38 @@ WEB_UI_HTML = r"""<!doctype html>
       const extractedClaim = document.getElementById('extracted-claim');
       extractedClaim.textContent = submitted.primary_claim ? `Alegação extraída do artigo: ${submitted.primary_claim}` : '';
       extractedClaim.style.display = submitted.primary_claim ? 'block' : 'none';
+      const claimQuote = document.getElementById('claim-quote');
+      claimQuote.textContent = submitted.primary_claim_quote ? `Trecho do artigo: “${submitted.primary_claim_quote}”` : '';
+      claimQuote.style.display = submitted.primary_claim_quote ? 'block' : 'none';
       document.getElementById('headline').textContent = text(report.headline);
       document.getElementById('summary').textContent = text(report.summary);
       const metrics = document.getElementById('metrics'); clearNode(metrics);
       metric(metrics, 'Força', labels[synthesis.strength] || synthesis.strength);
       metric(metrics, 'Direção', labels[synthesis.direction] || synthesis.direction);
       metric(metrics, 'Artigos', synthesis.article_count ?? 0);
+      const articleAssessment = data.article_assessment || {};
+      if (articleAssessment.label) metric(metrics, 'Leitura do artigo', articleAssessment.label);
 
       const limitations = document.getElementById('limitations'); clearNode(limitations);
       (report.limitations || []).forEach(item => addTextElement(limitations, 'li', item));
 
       const partial = verification.partial_verification || {};
+      const confidence = verification.confidence_index || {};
+      document.getElementById('confidence-score').textContent = confidence.score == null ? 'Não avaliado' : `${confidence.score}%`;
+      document.getElementById('confidence-explanation').textContent = text(confidence.explanation);
+      const confidenceComponents = document.getElementById('confidence-components'); clearNode(confidenceComponents);
+      (confidence.components || []).forEach(component => {
+        const li = document.createElement('li');
+        li.textContent = `${text(component.label)}: ${text(component.detail)}`;
+        confidenceComponents.appendChild(li);
+      });
       document.getElementById('verification-score').textContent = percentage(partial.percentage);
       document.getElementById('verification-explanation').textContent = text(partial.explanation);
       const meta = verification.meta_analysis || {};
       document.getElementById('meta-score').textContent = percentage(meta.compatibility_percentage, ' compatível');
       document.getElementById('meta-explanation').textContent = text(meta.explanation);
       const trials = verification.clinical_trials || {};
-      document.getElementById('trials-score').textContent = percentage(trials.registration_percentage, ' com registro');
+      document.getElementById('trials-score').textContent = trials.status === 'NOT_APPLICABLE' ? 'Não aplicável' : percentage(trials.registration_percentage, ' com registro');
       document.getElementById('trials-explanation').textContent = text(trials.explanation);
       const alerts = document.getElementById('verification-alerts'); clearNode(alerts);
       const alertItems = verification.alerts || [];

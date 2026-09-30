@@ -55,6 +55,32 @@ ESUMMARY_RESPONSE = {
 
 
 class SearchPubMedTests(unittest.TestCase):
+    def test_fetches_related_articles_and_excludes_seed(self):
+        calls = []
+
+        def fetch(endpoint, params):
+            calls.append((endpoint, params))
+            return {
+                "linksets": [
+                    {
+                        "linksetdbs": [
+                            {
+                                "linkname": "pubmed_pubmed_five",
+                                "links": ["39550612", "32596956", "21417263"],
+                            }
+                        ]
+                    }
+                ]
+            }
+
+        related = PubMedClient(fetch_json=fetch).related_ids(
+            "39550612", max_results=2
+        )
+
+        self.assertEqual(related, ("32596956", "21417263"))
+        self.assertEqual(calls[0][0], "elink.fcgi")
+        self.assertEqual(calls[0][1]["cmd"], "neighbor")
+
     def test_searches_deduplicates_and_normalizes_articles(self) -> None:
         fetcher = QueueFetcher(
             [
