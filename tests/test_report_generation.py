@@ -89,7 +89,7 @@ class ReportGenerationTests(unittest.TestCase):
         )
 
         self.assertEqual(report.conclusion, ReportConclusion.INSUFFICIENT_EVIDENCE)
-        self.assertIn("apenas 1 artigo", report.limitations[0])
+        self.assertIn("Apenas 1 artigo", report.limitations[0])
 
     def test_maps_sufficient_directions_and_conflict(self):
         cases = (
@@ -100,6 +100,7 @@ class ReportGenerationTests(unittest.TestCase):
                 ReportConclusion.INCOMPATIBLE_WITH_EVIDENCE,
             ),
             (EvidenceDirection.NEUTRAL, False, ReportConclusion.INCONCLUSIVE),
+            (EvidenceDirection.MIXED, False, ReportConclusion.INCONCLUSIVE),
             (EvidenceDirection.MIXED, True, ReportConclusion.CONFLICTING_EVIDENCE),
         )
         for direction, conflict, expected in cases:

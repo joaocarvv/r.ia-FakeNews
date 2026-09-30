@@ -98,6 +98,7 @@ _CONFIDENCE_LABELS = {
     "MODERATE": "moderada",
     "LOW": "baixa",
     "CRITICALLY_LOW": "criticamente baixa",
+    "UNCLEAR": "não esclarecida",
 }
 
 _QUALITY_LABELS = {
@@ -131,7 +132,7 @@ def methodology_summary_from_amstar(
 def _conclusion_for(synthesis: CorpusSynthesis) -> ReportConclusion:
     if synthesis.strength is EvidenceStrength.INSUFFICIENT:
         return ReportConclusion.INSUFFICIENT_EVIDENCE
-    if synthesis.has_conflict or synthesis.direction is EvidenceDirection.MIXED:
+    if synthesis.has_conflict:
         return ReportConclusion.CONFLICTING_EVIDENCE
     if synthesis.direction is EvidenceDirection.SUPPORTS:
         return ReportConclusion.COMPATIBLE_WITH_EVIDENCE
@@ -143,14 +144,23 @@ def _conclusion_for(synthesis: CorpusSynthesis) -> ReportConclusion:
 def _summary_for(synthesis: CorpusSynthesis, conclusion: ReportConclusion) -> str:
     direction = _DIRECTION_LABELS[synthesis.direction]
     if conclusion is ReportConclusion.INSUFFICIENT_EVIDENCE:
-        article_label = (
-            "artigo independente"
-            if synthesis.article_count == 1
-            else "artigos independentes"
+        usable_count = sum(
+            article.uncertain_count < article.assessment_count
+            for article in synthesis.articles
         )
-        verb = "fornece" if synthesis.article_count == 1 else "fornecem"
+        if usable_count == 0:
+            return (
+                "Os trechos recuperados não ultrapassaram os limites mínimos de "
+                "confiança e margem; a análise não sustenta uma conclusão."
+            )
+        article_label = (
+            "artigo independente com evidência classificada"
+            if usable_count == 1
+            else "artigos independentes com evidência classificada"
+        )
+        verb = "fornece" if usable_count == 1 else "fornecem"
         return (
-            f"A análise encontrou um sinal de {direction}, mas {synthesis.article_count} "
+            f"A análise encontrou um sinal de {direction}, mas {usable_count} "
             f"{article_label} não {verb} evidência suficiente para uma "
             "conclusão segura."
         )
@@ -194,13 +204,18 @@ def generate_evidence_report(
 
     limitations: list[str] = []
     if synthesis.strength is EvidenceStrength.INSUFFICIENT:
-        article_label = (
-            "artigo independente"
-            if synthesis.article_count == 1
-            else "artigos independentes"
+        usable_count = sum(
+            article.uncertain_count < article.assessment_count
+            for article in synthesis.articles
         )
-        verb = "Foi analisado" if synthesis.article_count == 1 else "Foram analisados"
-        limitations.append(f"{verb} apenas {synthesis.article_count} {article_label}.")
+        article_label = (
+            "artigo independente com evidência classificada"
+            if usable_count == 1
+            else "artigos independentes com evidência classificada"
+        )
+        limitations.append(
+            f"Apenas {usable_count} {article_label} ultrapassaram os limites de confiança."
+        )
     if synthesis.has_conflict:
         limitations.append("Há sinais conflitantes no conjunto analisado.")
     for item in methodology:

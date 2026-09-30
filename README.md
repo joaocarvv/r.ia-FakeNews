@@ -9,6 +9,14 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 ## Arquivos principais
 
 - `fato_ou_fake_poc.ipynb`: notebook completo e salvo com uma execução de exemplo.
+- `notebooks/17_validacao_orquestracao_multiartigo.ipynb`: validação do serviço que parte da alegação, processa múltiplos artigos e gera o relatório final.
+- `notebooks/18_validacao_api_http.ipynb`: validação reproduzível do contrato HTTP assíncrono para iniciar e consultar análises.
+- `notebooks/19_validacao_confiabilidade.ipynb`: benchmark inicial das regras de abstenção e exclusão de artigos retratados.
+- `notebooks/20_validacao_pesquisa_adversarial.ipynb`: validação controlada do pesquisador, crítico e árbitro determinístico com checagem de proveniência.
+- `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
+- `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
+- `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.
+- `docs/EDA_PubMed_Grupo08.docx`: relatório acadêmico da EDA com tabelas, medidas de dispersão e gráficos incorporados.
 - `build_notebook.py`: gerador reproduzível do notebook.
 - `.env.example`: modelo das variáveis de ambiente.
 - `requirements.txt`: dependências principais.
@@ -255,3 +263,5 @@ Execute o setup do Crawl4AI/Playwright e confirme que a página permite acesso a
 ## Limites da POC
 
 Os resultados dependem da cobertura do PubMed e das páginas configuradas, da qualidade das consultas, da atualidade das fontes e da classificação automática. O `Evidence Score` é uma heurística sobre as evidências recuperadas, não uma probabilidade matemática de verdade. Toda conclusão relevante deve manter os trechos e URLs disponíveis para revisão humana.
+
+O benchmark da etapa 19 é uma regressão de segurança com casos controlados. Ele não mede acurácia clínica; essa avaliação exige um conjunto ouro de casos reais revisados por especialistas.

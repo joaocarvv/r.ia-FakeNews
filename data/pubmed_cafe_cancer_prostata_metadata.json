@@ -1,0 +1,10 @@
+{
+  "source": "PubMed / NCBI E-utilities",
+  "source_url": "https://pubmed.ncbi.nlm.nih.gov/",
+  "query": "(\"Coffee\"[MeSH Terms] OR coffee[Title/Abstract]) AND (\"Prostatic Neoplasms\"[MeSH Terms] OR \"prostate cancer\"[Title/Abstract])",
+  "sort": "relevance",
+  "retrieved_at_utc": "2026-09-28T11:45:37.295122+00:00",
+  "total_matches": 116,
+  "records_captured": 100,
+  "max_records": 100
+}

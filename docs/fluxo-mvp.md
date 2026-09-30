@@ -69,7 +69,25 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 **Comprovação:** [`notebooks/15_validacao_resposta_explicavel.ipynb`](../notebooks/15_validacao_resposta_explicavel.ipynb).
 
-**Próxima etapa:** encapsular o fluxo completo em um serviço de aplicação que receba a entrada validada e devolva o relatório estruturado.
+**Etapa concluída:** encapsular o fluxo em um serviço de aplicação que busque e processe múltiplos artigos independentes, tolere falhas isoladas e devolva o relatório estruturado.
+
+**Comprovação:** [`notebooks/17_validacao_orquestracao_multiartigo.ipynb`](../notebooks/17_validacao_orquestracao_multiartigo.ipynb).
+
+**Etapa concluída:** expor o serviço por uma API HTTP assíncrona, com contrato de entrada, consulta de progresso, resultado estruturado e erros seguros.
+
+**Comprovação:** [`notebooks/18_validacao_api_http.ipynb`](../notebooks/18_validacao_api_http.ipynb).
+
+**Etapa concluída:** impedir que evidências inteiramente incertas sustentem uma conclusão e excluir artigos com retratação confirmada da síntese, mantendo ambos os casos auditáveis.
+
+**Comprovação:** [`notebooks/19_validacao_confiabilidade.ipynb`](../notebooks/19_validacao_confiabilidade.ipynb).
+
+**Etapa concluída:** revisar a interpretação das evidências por dois papéis independentes — pesquisador e crítico — e submeter suas saídas a um árbitro determinístico que valida citações, impede a promoção de evidência insuficiente e explicita a necessidade de abstenção.
+
+**Comprovação:** [`notebooks/20_validacao_pesquisa_adversarial.ipynb`](../notebooks/20_validacao_pesquisa_adversarial.ipynb).
+
+Essa etapa valida regras de software com agentes controlados; não representa validação clínica nem demonstra que uma IA possa validar outra IA.
+
+**Próxima etapa:** implementar adaptadores reais e versionados para os agentes e construir um conjunto prata baseado em revisões, diretrizes e casos de retratação, medindo recuperação, correção das citações, abstenção e falsa segurança.
 
 ## Fluxo
 
