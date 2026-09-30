@@ -200,6 +200,10 @@ WEB_UI_HTML = r"""<!doctype html>
           <p id="next-action"></p>
         </aside>
       </div>
+      <details id="article-dossier" class="panel result-card">
+        <summary>Ver ficha do artigo enviado</summary>
+        <div class="stack" id="dossier-items"></div>
+      </details>
       <div class="panel result-card" style="margin-top: 20px">
         <div class="kicker">Trechos que sustentam a comparação</div>
         <h3>Evidências independentes encontradas</h3>
@@ -292,6 +296,38 @@ WEB_UI_HTML = r"""<!doctype html>
       document.getElementById('compatibility-detail').textContent = text(compatibility.explanation);
       document.getElementById('methodology-label').textContent = text(methodology.label);
       document.getElementById('methodology-detail').textContent = text(methodology.explanation);
+
+      const dossier = data.article_dossier || {};
+      const dossierPanel = document.getElementById('article-dossier');
+      const dossierItems = document.getElementById('dossier-items'); clearNode(dossierItems);
+      dossierPanel.style.display = Object.keys(dossier).length ? 'block' : 'none';
+      if (Object.keys(dossier).length) {
+        const identity = dossier.identity || {};
+        const publication = dossier.publication || {};
+        const editorial = dossier.editorial_status || {};
+        const dossierMethod = dossier.methodology || {};
+        const transparency = dossier.transparency || {};
+        const sample = dossierMethod.sample_size || {};
+        const protocol = dossierMethod.protocol || {};
+        const addDossierItem = (title, detail) => {
+          const card = document.createElement('article'); card.className = 'finding';
+          addTextElement(card, 'h3', title); addTextElement(card, 'p', detail); dossierItems.appendChild(card);
+        };
+        addDossierItem('Identidade e publicação',
+          `${identity.explanation || 'Identidade não confirmada'} Autores: ${identity.authors_consistency || 'UNKNOWN'}. ` +
+          `DOI: ${identity.doi || 'não informado'}; periódico: ${publication.journal || 'não informado'}; data: ${publication.publication_date || 'não informada'}.`);
+        addDossierItem('Status editorial',
+          `Revisão por pares: ${editorial.peer_review || 'UNKNOWN'}. Retratação: ${editorial.retraction || 'UNKNOWN'}. ` +
+          `${editorial.retraction_explanation || ''}`);
+        addDossierItem('Desenho, amostra e protocolo',
+          `Desenho: ${dossierMethod.study_design || 'UNKNOWN'}; fonte: ${dossierMethod.classification_source || 'UNRESOLVED'}. ` +
+          `Amostra: ${sample.value == null ? 'não localizada' : sample.value}. Protocolos: ${(protocol.identifiers || []).join(', ') || 'não localizados'}.`);
+        addDossierItem('Transparência',
+          `Financiamento: ${transparency.funding?.status || 'UNKNOWN'}. Conflitos de interesse: ${transparency.conflicts_of_interest?.status || 'UNKNOWN'}. ` +
+          `Disponibilidade de dados: ${transparency.data_availability?.status || 'UNKNOWN'}.`);
+        addDossierItem('Limites da ficha',
+          `${dossier.results_conclusion_consistency?.explanation || 'Consistência entre resultados e conclusão não avaliada.'}`);
+      }
 
       const limitations = document.getElementById('limitations'); clearNode(limitations);
       (narrative.caveats || []).forEach(item => addTextElement(limitations, 'li', item));

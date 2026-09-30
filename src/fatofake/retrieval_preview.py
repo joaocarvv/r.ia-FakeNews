@@ -17,6 +17,7 @@ from .article_ingestion import (
 )
 from .document_parsing import DocumentParsingError, LiteParseDocumentParser
 from .chunking import ChunkingConfig, ChunkingError, chunk_article_content
+from .crossref import CrossrefClient
 from .gemini_evidence import (
     EvidenceDocument,
     EvidencePassage,
@@ -727,6 +728,7 @@ def create_live_retrieval_app(*, project_root: Path | None = None):
         api_key=os.getenv("NCBI_API_KEY") or None,
         timeout=timeout,
     )
+    crossref_client = CrossrefClient(email=email, timeout=timeout)
     engine = FederatedSearchEngine(
         (
             PubMedSearchProvider(pubmed_client),
@@ -775,7 +777,7 @@ def create_live_retrieval_app(*, project_root: Path | None = None):
             ArticleFirstAnalysisRunner(
                 GeminiArticleExtractor(evidence_analyzer),
                 runner,
-                PubMedReferenceResolver(pubmed_client, pmc_client),
+                PubMedReferenceResolver(pubmed_client, pmc_client, crossref_client),
                 document_parser,
             )
             if evidence_analyzer is not None

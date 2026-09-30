@@ -89,6 +89,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Compatibilidade das evidências", page)
         self.assertIn("Confiança metodológica", page)
         self.assertNotIn("Índice de cobertura da verificação", page)
+        self.assertIn("Ver ficha do artigo enviado", page)
         self.assertIn("O que conseguimos ler", page)
         self.assertIn("Evidências independentes encontradas", page)
         self.assertIn("Ver detalhes técnicos e alertas", page)

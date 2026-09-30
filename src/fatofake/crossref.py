@@ -74,6 +74,8 @@ class IdentityVerification:
     crossref_publication_date: str | None
     reason: str
     crossref_updates: tuple[CrossrefUpdate, ...] = ()
+    crossref_authors: tuple[str, ...] = ()
+    crossref_work_type: str | None = None
 
 
 def _updates(message: Mapping[str, Any]) -> tuple[CrossrefUpdate, ...]:
@@ -284,6 +286,8 @@ def verify_publication_identity(
             else "Os metadados apresentam diferença que requer revisão."
         ),
         crossref_updates=work.updates,
+        crossref_authors=work.authors,
+        crossref_work_type=work.work_type,
     )
 
 

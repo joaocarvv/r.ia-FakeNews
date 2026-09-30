@@ -127,7 +127,11 @@ Resultados neutros são apresentados como contexto relacionado, não como confir
 
 **Comprovação:** [`notebooks/28_validacao_indicadores_separados.ipynb`](../notebooks/28_validacao_indicadores_separados.ipynb).
 
-**Próxima etapa:** priorizar metadados determinísticos na classificação do desenho do estudo e ampliar a ficha do artigo enviado com identidade, status editorial, amostra, financiamento, dados e protocolo.
+**Etapa concluída:** classificar o desenho do estudo pela precedência `PublicationType do PubMed → identificador de ensaio → declaração explícita no texto → tipo documental Crossref → fallback do Gemini`. A ficha do artigo enviado separa identidade, consistência de autores, status editorial, retratação/correções, desenho e origem da classificação, amostra, protocolos, financiamento, conflitos, dados, linguagem absoluta e consistência ainda não avaliada entre resultados e conclusão. Ausências permanecem desconhecidas ou não encontradas, sem preenchimento pelo modelo.
+
+**Comprovação:** [`notebooks/29_validacao_ficha_artigo.ipynb`](../notebooks/29_validacao_ficha_artigo.ipynb).
+
+**Próxima etapa:** ampliar a busca científica por alegação com sinônimos/MeSH, vizinhos do PubMed, referências, citações, OpenAlex, revisões, DOI e autores, seguida de reranking por aderência à pergunta científica.
 
 ## Fluxo
 

@@ -35,6 +35,7 @@ ESUMMARY_RESPONSE = {
                 {"idtype": "pubmed", "value": "101"},
                 {"idtype": "doi", "value": "10.1000/coffee.101"},
             ],
+            "pubtype": ["Journal Article", "Randomized Controlled Trial"],
         },
         "202": {
             "title": "Coffee and neoplasms: a systematic review.",
@@ -101,6 +102,10 @@ class SearchPubMedTests(unittest.TestCase):
         self.assertEqual([item.pmid for item in result.publications], ["101", "202", "303"])
         self.assertEqual(result.publications[0].doi, "10.1000/coffee.101")
         self.assertEqual(result.publications[0].authors, ("Silva A", "Souza B"))
+        self.assertEqual(
+            result.publications[0].publication_types,
+            ("Journal Article", "Randomized Controlled Trial"),
+        )
         self.assertEqual(
             result.publications[1].matched_queries,
             ("coffee cancer risk", "coffee neoplasms"),

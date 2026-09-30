@@ -11,6 +11,13 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
+from .article_profile import build_article_dossier
+from .crossref import (
+    CrossrefClient,
+    CrossrefError,
+    IdentityVerification,
+    verify_publication_identity,
+)
 from .gemini_evidence import GeminiAnalysisError, GeminiEvidenceAnalyzer
 from .document_parsing import DocumentParsingError, LiteParseDocumentParser, ParsedPage
 from .input_validation import DOI_PATTERN, DOI_PREFIX_PATTERN, InputValidationError
@@ -79,6 +86,12 @@ class ResolvedArticleDocument:
     pages: tuple[ParsedPage, ...] = ()
     sections: tuple[tuple[str, str], ...] = ()
     content_scope: str = "UNKNOWN"
+    authors: tuple[str, ...] = ()
+    journal: str | None = None
+    publication_date: str | None = None
+    publication_types: tuple[str, ...] = ()
+    source_url: str | None = None
+    identity_verification: IdentityVerification | None = None
 
 
 class ArticleIngestionError(RuntimeError):
@@ -88,9 +101,15 @@ class ArticleIngestionError(RuntimeError):
 class PubMedReferenceResolver:
     """Resolve PMID/DOI pelas APIs do NCBI, sem pedir ao LLM para abrir a página."""
 
-    def __init__(self, pubmed_client: PubMedClient, pmc_client: PmcClient) -> None:
+    def __init__(
+        self,
+        pubmed_client: PubMedClient,
+        pmc_client: PmcClient,
+        crossref_client: CrossrefClient | None = None,
+    ) -> None:
         self.pubmed_client = pubmed_client
         self.pmc_client = pmc_client
+        self.crossref_client = crossref_client
 
     @staticmethod
     def _pmid_from_reference(submission: ArticleSubmission) -> str | None:
@@ -133,6 +152,12 @@ class PubMedReferenceResolver:
                 f"O PMID {pmid} não possui texto disponível para análise."
             )
         publication = publications[0]
+        identity: IdentityVerification | None = None
+        if self.crossref_client is not None:
+            try:
+                identity = verify_publication_identity(publication, self.crossref_client)
+            except CrossrefError:
+                identity = None
         sections = tuple((section.title, section.text) for section in content.sections)
         pages = tuple(
             ParsedPage(section.page_number, section.text)
@@ -164,6 +189,12 @@ class PubMedReferenceResolver:
             pages=pages,
             page_count=len(pages) or None,
             content_scope=content.access_level,
+            authors=publication.authors,
+            journal=publication.journal,
+            publication_date=publication.publication_date,
+            publication_types=publication.publication_types,
+            source_url=publication.url,
+            identity_verification=identity,
         )
 
 
@@ -684,6 +715,21 @@ class ArticleFirstAnalysisRunner:
                 content_scope="LOCAL_PDF_FULL_TEXT",
             )
         extracted = self.extractor.extract(submission, resolved)
+        dossier = build_article_dossier(
+            title=extracted.title,
+            doi=extracted.doi,
+            pmid=resolved.pmid if resolved else None,
+            authors=resolved.authors if resolved else (),
+            journal=resolved.journal if resolved else None,
+            publication_date=resolved.publication_date if resolved else None,
+            publication_types=resolved.publication_types if resolved else (),
+            text=resolved.text if resolved else "",
+            sections=resolved.sections if resolved else (),
+            identity=resolved.identity_verification if resolved else None,
+            llm_context=extracted.research_context,
+            absolute_language=extracted.absolute_language,
+            source_url=(resolved.source_url if resolved else submission.reference),
+        )
         excluded = (extracted.doi,) if extracted.doi else ()
         claims = extracted.claims or (
             ExtractedClaim(
@@ -715,6 +761,34 @@ class ArticleFirstAnalysisRunner:
                 submission=submission,
                 resolved=resolved,
             )
+            claim_result["article_dossier"] = dossier
+            dossier_alerts: list[dict[str, Any]] = []
+            if dossier["editorial_status"]["retraction"] == "RETRACTED":
+                dossier_alerts.append(
+                    {
+                        "code": "SUBMITTED_ARTICLE_RETRACTED",
+                        "severity": "CRITICAL",
+                        "title": "Alerta grave: artigo enviado retratado",
+                        "detail": dossier["editorial_status"]["retraction_explanation"],
+                        "source_url": dossier["identity"]["source_url"],
+                    }
+                )
+            if dossier["identity"]["status"] == "REVIEW_REQUIRED":
+                dossier_alerts.append(
+                    {
+                        "code": "SUBMITTED_ARTICLE_IDENTITY_INCONSISTENT",
+                        "severity": "CRITICAL",
+                        "title": "Alerta grave: identidade inconsistente",
+                        "detail": dossier["identity"]["explanation"],
+                        "source_url": dossier["identity"]["source_url"],
+                    }
+                )
+            if dossier_alerts:
+                verification = dict(claim_result.get("verification") or {})
+                verification["alerts"] = dossier_alerts + list(
+                    verification.get("alerts") or ()
+                )
+                claim_result["verification"] = verification
             claim_analyses.append(
                 {
                     "claim_id": claim.claim_id,
@@ -738,5 +812,6 @@ class ArticleFirstAnalysisRunner:
             include_all_claims=True,
         )
         result["claim_analyses"] = claim_analyses
+        result["article_dossier"] = dossier
         result["user_summary"] = build_user_summary(result)
         return result

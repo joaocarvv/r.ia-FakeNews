@@ -21,6 +21,7 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 - `notebooks/26_validacao_saida_coerente.ipynb`: validação da narrativa consolidada, dos denominadores e da abstenção apresentada ao usuário.
 - `notebooks/27_validacao_multiplas_alegacoes.ipynb`: validação da extração atômica, deduplicação e análise independente de várias alegações do mesmo artigo.
 - `notebooks/28_validacao_indicadores_separados.ipynb`: validação da separação entre cobertura da busca, compatibilidade das evidências e confiança metodológica, sem percentual geral de verdade.
+- `notebooks/29_validacao_ficha_artigo.ipynb`: validação da precedência determinística na classificação do desenho e da ficha auditável do artigo enviado.
 - `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
 - `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
 - `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.

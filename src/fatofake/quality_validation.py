@@ -34,7 +34,9 @@ class ValidationStatus(str, Enum):
 
 class StudyDesign(str, Enum):
     SYSTEMATIC_REVIEW_META_ANALYSIS = "SYSTEMATIC_REVIEW_META_ANALYSIS"
+    SYSTEMATIC_REVIEW = "SYSTEMATIC_REVIEW"
     RANDOMIZED_CLINICAL_TRIAL = "RANDOMIZED_CLINICAL_TRIAL"
+    CLINICAL_TRIAL = "CLINICAL_TRIAL"
     OBSERVATIONAL = "OBSERVATIONAL"
     OTHER = "OTHER"
     UNKNOWN = "UNKNOWN"
@@ -42,6 +44,13 @@ class StudyDesign(str, Enum):
 
 class ExternalServiceError(RuntimeError):
     """Falha ao consultar ou interpretar um serviço externo de validação."""
+
+
+@dataclass(frozen=True)
+class StudyDesignAssessment:
+    design: StudyDesign
+    source: str
+    rationale: str
 
 
 @dataclass(frozen=True)
@@ -196,15 +205,116 @@ class ClinicalTrialsClient(_JsonClient):
         )
 
 
-def detect_study_design(title: str, abstract: str | None) -> StudyDesign:
+def classify_study_design(
+    title: str,
+    abstract: str | None,
+    *,
+    publication_types: Sequence[str] = (),
+    crossref_type: str | None = None,
+    llm_context: str | None = None,
+) -> StudyDesignAssessment:
+    normalized_types = {item.casefold().strip() for item in publication_types}
+    if "meta-analysis" in normalized_types:
+        return StudyDesignAssessment(
+            StudyDesign.SYSTEMATIC_REVIEW_META_ANALYSIS,
+            "PUBMED_PUBLICATION_TYPE",
+            "O PublicationType do PubMed identifica meta-análise.",
+        )
+    if "systematic review" in normalized_types:
+        return StudyDesignAssessment(
+            StudyDesign.SYSTEMATIC_REVIEW,
+            "PUBMED_PUBLICATION_TYPE",
+            "O PublicationType do PubMed identifica revisão sistemática sem confirmar meta-análise.",
+        )
+    if "randomized controlled trial" in normalized_types:
+        return StudyDesignAssessment(
+            StudyDesign.RANDOMIZED_CLINICAL_TRIAL,
+            "PUBMED_PUBLICATION_TYPE",
+            "O PublicationType do PubMed identifica ensaio clínico randomizado.",
+        )
+    if normalized_types & {"clinical trial", "controlled clinical trial"}:
+        return StudyDesignAssessment(
+            StudyDesign.CLINICAL_TRIAL,
+            "PUBMED_PUBLICATION_TYPE",
+            "O PublicationType do PubMed identifica ensaio clínico sem confirmar randomização.",
+        )
+    if normalized_types & {
+        "observational study",
+        "comparative study",
+        "multicenter study",
+    }:
+        return StudyDesignAssessment(
+            StudyDesign.OBSERVATIONAL,
+            "PUBMED_PUBLICATION_TYPE",
+            "O PublicationType do PubMed identifica desenho observacional ou comparativo.",
+        )
+
     text = f"{title} {abstract or ''}".casefold()
+    if re.search(r"\bNCT\d{8}\b", text, re.I):
+        return StudyDesignAssessment(
+            StudyDesign.CLINICAL_TRIAL,
+            "TRIAL_IDENTIFIER",
+            "Foi localizado identificador ClinicalTrials.gov no texto.",
+        )
     if "systematic review" in text and "meta-analysis" in text:
-        return StudyDesign.SYSTEMATIC_REVIEW_META_ANALYSIS
+        return StudyDesignAssessment(
+            StudyDesign.SYSTEMATIC_REVIEW_META_ANALYSIS,
+            "EXPLICIT_TEXT",
+            "O título ou resumo declara revisão sistemática e meta-análise.",
+        )
     if re.search(r"randomi[sz]ed(?: controlled)? trial", text):
-        return StudyDesign.RANDOMIZED_CLINICAL_TRIAL
+        return StudyDesignAssessment(
+            StudyDesign.RANDOMIZED_CLINICAL_TRIAL,
+            "EXPLICIT_TEXT",
+            "O título ou resumo declara ensaio randomizado.",
+        )
+    if "systematic review" in text:
+        return StudyDesignAssessment(
+            StudyDesign.SYSTEMATIC_REVIEW,
+            "EXPLICIT_TEXT",
+            "O título ou resumo declara revisão sistemática sem confirmar meta-análise.",
+        )
     if any(term in text for term in ("cohort study", "case-control", "cross-sectional")):
-        return StudyDesign.OBSERVATIONAL
-    return StudyDesign.UNKNOWN
+        return StudyDesignAssessment(
+            StudyDesign.OBSERVATIONAL,
+            "EXPLICIT_TEXT",
+            "O título ou resumo declara desenho observacional.",
+        )
+    if str(crossref_type or "").casefold() in {"posted-content", "preprint"}:
+        return StudyDesignAssessment(
+            StudyDesign.OTHER,
+            "CROSSREF_TYPE",
+            "O Crossref identifica o documento como preprint ou conteúdo publicado previamente.",
+        )
+    fallback = {
+        "SYSTEMATIC_REVIEW": StudyDesign.SYSTEMATIC_REVIEW,
+        "CLINICAL": StudyDesign.CLINICAL_TRIAL,
+        "EPIDEMIOLOGICAL": StudyDesign.OBSERVATIONAL,
+        "BASIC_SCIENCE": StudyDesign.OTHER,
+    }.get(str(llm_context or "").upper())
+    if fallback is not None:
+        return StudyDesignAssessment(
+            fallback,
+            "GEMINI_FALLBACK",
+            "Metadados determinísticos não resolveram; foi usado o contexto sugerido pelo modelo.",
+        )
+    return StudyDesignAssessment(
+        StudyDesign.UNKNOWN,
+        "UNRESOLVED",
+        "Os metadados e o texto disponível não permitiram classificar o desenho.",
+    )
+
+
+def detect_study_design(
+    title: str,
+    abstract: str | None,
+    publication_types: Sequence[str] = (),
+) -> StudyDesign:
+    return classify_study_design(
+        title,
+        abstract,
+        publication_types=publication_types,
+    ).design
 
 
 def _check(name: str, status: ValidationStatus, summary: str, source: str) -> QualityCheck:
@@ -221,13 +331,18 @@ def validate_article_quality(
     """Executa verificações independentes e mantém ausências como inconclusivas."""
 
     checks: list[QualityCheck] = []
-    design = detect_study_design(publication.title, content.abstract)
+    design_assessment = classify_study_design(
+        publication.title,
+        content.abstract,
+        publication_types=publication.publication_types,
+    )
+    design = design_assessment.design
     design_status = ValidationStatus.CONFIRMED if design is not StudyDesign.UNKNOWN else ValidationStatus.UNKNOWN
     checks.append(
         _check(
             "study_design",
             design_status,
-            f"Desenho identificado de forma conservadora: {design.value}.",
+            f"{design_assessment.rationale} Fonte: {design_assessment.source}.",
             publication.url,
         )
     )
@@ -298,7 +413,7 @@ def validate_article_quality(
         checks.append(_check("data_availability", ValidationStatus.UNKNOWN, "Artigo sem DOI para consulta no DataCite.", publication.url))
 
     registrations: list[TrialRegistration] = []
-    if design is StudyDesign.RANDOMIZED_CLINICAL_TRIAL:
+    if design in {StudyDesign.RANDOMIZED_CLINICAL_TRIAL, StudyDesign.CLINICAL_TRIAL}:
         nct_ids = tuple(dict.fromkeys(re.findall(r"\bNCT\d{8}\b", f"{publication.title} {content.abstract or ''}", re.I)))
         if not nct_ids:
             checks.append(_check("trial_registration", ValidationStatus.NOT_FOUND, "Nenhum identificador NCT explícito foi localizado.", publication.url))

@@ -36,6 +36,7 @@ class Publication:
     url: str
     matched_queries: tuple[str, ...]
     source: str = "PubMed"
+    publication_types: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -195,6 +196,11 @@ class PubMedClient:
             )
             publication_date = document.get("epubdate") or document.get("pubdate") or None
             journal = document.get("fulljournalname") or document.get("source") or None
+            publication_types = tuple(
+                str(item).strip()
+                for item in (document.get("pubtype") or ())
+                if str(item).strip()
+            )
 
             publications.append(
                 Publication(
@@ -206,6 +212,7 @@ class PubMedClient:
                     doi=doi,
                     url=f"https://pubmed.ncbi.nlm.nih.gov/{identifier}/",
                     matched_queries=matched_queries.get(identifier, ()),
+                    publication_types=publication_types,
                 )
             )
 
