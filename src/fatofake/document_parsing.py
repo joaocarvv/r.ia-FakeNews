@@ -11,11 +11,18 @@ class DocumentParsingError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ParsedPage:
+    page_number: int
+    text: str
+
+
+@dataclass(frozen=True)
 class ParsedDocument:
     text: str
     page_count: int
     parser_name: str
     used_ocr: bool
+    pages: tuple[ParsedPage, ...] = ()
 
 
 ParserFactory = Callable[..., Any]
@@ -76,9 +83,18 @@ class LiteParseDocumentParser:
                 "O arquivo pode ser uma digitalização ou exigir OCR mais avançado."
             )
         page_count = int(getattr(result, "total_pages", 0) or 0)
+        pages = tuple(
+            ParsedPage(
+                page_number=int(getattr(page, "page_num", index) or index),
+                text=str(getattr(page, "markdown", None) or getattr(page, "text", "") or "").strip(),
+            )
+            for index, page in enumerate(getattr(result, "pages", ()) or (), start=1)
+            if str(getattr(page, "markdown", None) or getattr(page, "text", "") or "").strip()
+        )
         return ParsedDocument(
             text=text,
             page_count=page_count,
             parser_name="liteparse",
             used_ocr=True,
+            pages=pages,
         )

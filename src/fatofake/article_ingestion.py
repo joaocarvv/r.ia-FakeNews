@@ -10,9 +10,9 @@ from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
 from .gemini_evidence import GeminiAnalysisError, GeminiEvidenceAnalyzer
-from .document_parsing import DocumentParsingError, LiteParseDocumentParser
+from .document_parsing import DocumentParsingError, LiteParseDocumentParser, ParsedPage
 from .input_validation import DOI_PATTERN, DOI_PREFIX_PATTERN, InputValidationError
-from .pmc import ContentRetrievalError, PmcClient
+from .pmc import ContentRetrievalError, PmcClient, retrieve_article_content
 from .pubmed import PubMedClient, PubMedError
 from .verification_cards import build_verification_confidence
 
@@ -50,6 +50,8 @@ class ExtractedArticle:
     extraction_model: str
     primary_claim_quote: str | None = None
     research_context: str = "UNKNOWN"
+    primary_claim_section: str | None = None
+    primary_claim_page: int | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,9 @@ class ResolvedArticleDocument:
     pmid: str | None = None
     parser_name: str = "scientific-api"
     page_count: int | None = None
+    pages: tuple[ParsedPage, ...] = ()
+    sections: tuple[tuple[str, str], ...] = ()
+    content_scope: str = "UNKNOWN"
 
 
 class ArticleIngestionError(RuntimeError):
@@ -100,22 +105,52 @@ class PubMedReferenceResolver:
             return None
         try:
             publications = self.pubmed_client.fetch_summaries((pmid,), {pmid: ()})
-            abstract = self.pmc_client.fetch_pubmed_abstract(pmid)
+            if not publications:
+                raise ArticleIngestionError(
+                    f"Não foi possível recuperar os metadados do PMID {pmid}."
+                )
+            content = retrieve_article_content(publications[0], self.pmc_client)
         except (PubMedError, ContentRetrievalError) as error:
             raise ArticleIngestionError(
                 f"Não foi possível recuperar o conteúdo do PMID {pmid}."
             ) from error
-        if not abstract:
+        if not content.abstract and not content.full_text:
             raise ArticleIngestionError(
-                f"O PMID {pmid} não possui abstract disponível para análise."
+                f"O PMID {pmid} não possui texto disponível para análise."
             )
-        publication = publications[0] if publications else None
-        title = publication.title if publication else None
-        doi = publication.doi if publication else (
-            submission.reference if submission.reference_type == "doi" else None
+        publication = publications[0]
+        sections = tuple((section.title, section.text) for section in content.sections)
+        pages = tuple(
+            ParsedPage(section.page_number, section.text)
+            for section in content.sections
+            if section.page_number is not None
         )
-        text = f"Título: {title}\n\nAbstract: {abstract}" if title else abstract
-        return ResolvedArticleDocument(title=title, doi=doi, text=text, pmid=pmid)
+        if content.full_text:
+            body = "\n\n".join(
+                f"## {title}\n{text}" for title, text in sections
+            ) or content.full_text
+            parser_name = (
+                "liteparse-pmc-pdf"
+                if pages
+                else "pmc-xml"
+            )
+        else:
+            body = f"## Abstract\n{content.abstract}"
+            sections = (("Abstract", content.abstract or ""),)
+            parser_name = "pubmed-abstract"
+        text = f"Título: {publication.title}\n\n{body}"
+        return ResolvedArticleDocument(
+            title=publication.title,
+            doi=publication.doi
+            or (submission.reference if submission.reference_type == "doi" else None),
+            text=text,
+            pmid=pmid,
+            parser_name=parser_name,
+            sections=sections,
+            pages=pages,
+            page_count=len(pages) or None,
+            content_scope=content.access_level,
+        )
 
 
 def _normalize_reference(value: str) -> tuple[str, str]:
@@ -291,10 +326,22 @@ class GeminiArticleExtractor:
         if doi and not DOI_PATTERN.fullmatch(doi):
             doi = None
         quote = " ".join(str(decoded.get("primary_claim_quote") or "").split())[:1000]
+        quote_section: str | None = None
+        quote_page: int | None = None
         if resolved is not None and quote:
             normalized_source = " ".join(resolved.text.split())
             if quote not in normalized_source:
                 quote = ""
+            else:
+                for page in resolved.pages:
+                    if quote in " ".join(page.text.split()):
+                        quote_page = page.page_number
+                        quote_section = "Página do PDF"
+                        break
+                for section, section_text in resolved.sections:
+                    if quote in " ".join(section_text.split()):
+                        quote_section = section
+                        break
         research_context = str(decoded.get("research_context") or "UNKNOWN").upper()
         if research_context not in {
             "BASIC_SCIENCE",
@@ -314,6 +361,8 @@ class GeminiArticleExtractor:
             extraction_model=self.gateway.model_name,
             primary_claim_quote=quote or None,
             research_context=research_context,
+            primary_claim_section=quote_section,
+            primary_claim_page=quote_page,
         )
 
 
@@ -366,6 +415,8 @@ class ArticleFirstAnalysisRunner:
                 text=parsed.text,
                 parser_name=parsed.parser_name,
                 page_count=parsed.page_count,
+                pages=tuple(getattr(parsed, "pages", ()) or ()),
+                content_scope="LOCAL_PDF_FULL_TEXT",
             )
         extracted = self.extractor.extract(submission, resolved)
         excluded = (extracted.doi,) if extracted.doi else ()
@@ -392,10 +443,13 @@ class ArticleFirstAnalysisRunner:
             "absolute_language": list(extracted.absolute_language),
             "extraction_model": extracted.extraction_model,
             "primary_claim_quote": extracted.primary_claim_quote,
+            "primary_claim_section": extracted.primary_claim_section,
+            "primary_claim_page": extracted.primary_claim_page,
             "research_context": extracted.research_context,
             "excluded_from_independent_evidence": bool(extracted.doi),
             "document_parser": resolved.parser_name if resolved else "gemini-multimodal",
             "page_count": resolved.page_count if resolved else None,
+            "content_scope": resolved.content_scope if resolved else "GEMINI_URL_CONTEXT",
         }
         verification = dict(result.get("verification") or {})
         verification["confidence_index"] = build_verification_confidence(

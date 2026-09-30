@@ -48,6 +48,14 @@ def build_verification_confidence(
         any(assessment.get("relation") == "NEUTRAL" for assessment in item.get("assessments", ()))
         for item in assessed_articles
     )
+    full_text_assessed = sum(
+        any(
+            (assessment.get("evidence") or {}).get("content_scope")
+            in {"FULL_TEXT", "OPEN_ACCESS_FULL_TEXT"}
+            for assessment in item.get("assessments", ())
+        )
+        for item in assessed_articles
+    )
     current_year = datetime.now(timezone.utc).year
     years: list[int] = []
     citation_total = 0
@@ -79,7 +87,10 @@ def build_verification_confidence(
             "label": "Cobertura dos textos",
             "points": round(30 * assessed / total, 1) if total else 0.0,
             "maximum": 30,
-            "detail": f"{assessed} de {total} artigos tiveram abstract analisado.",
+            "detail": (
+                f"{assessed} de {total} artigos tiveram trechos analisados; "
+                f"{full_text_assessed} com acesso ao texto completo."
+            ),
             "status": "AVAILABLE" if total else "MISSING",
         },
         {
@@ -264,9 +275,15 @@ def build_abstract_analysis_cards(
     assessments: Sequence[Any],
     content_failure_count: int = 0,
 ) -> dict[str, Any]:
-    """Resume a análise de abstracts sem alegar validação de texto completo."""
+    """Resume os trechos analisados e explicita seu nível de acesso."""
 
     assessed = tuple(assessments)
+    full_text_count = sum(
+        getattr(item, "content_scope", "ABSTRACT")
+        in {"FULL_TEXT", "OPEN_ACCESS_FULL_TEXT"}
+        for item in assessed
+    )
+    abstract_count = len(assessed) - full_text_count
     meta = tuple(
         item
         for item in assessed
@@ -282,12 +299,13 @@ def build_abstract_analysis_cards(
     alerts = detect_language_alerts(claim)
     alerts.append(
         {
-            "code": "ABSTRACT_ONLY_ANALYSIS",
+            "code": "CONTENT_SCOPE",
             "severity": "INFO",
-            "title": "Análise limitada aos abstracts",
+            "title": "Escopo dos textos analisados",
             "detail": (
-                "A compatibilidade foi estimada a partir dos resumos. Métodos, "
-                "tabelas e resultados completos ainda não foram verificados."
+                f"{full_text_count} artigo(s) foram analisados com texto completo e "
+                f"{abstract_count} somente pelo abstract. Cada trecho informa seção "
+                "e página quando a fonte fornece paginação."
             ),
             "source_url": None,
         }
@@ -318,10 +336,10 @@ def build_abstract_analysis_cards(
     if content_failure_count:
         alerts.append(
             {
-                "code": "ABSTRACT_RETRIEVAL_FAILURES",
+                "code": "CONTENT_RETRIEVAL_FAILURES",
                 "severity": "WARNING",
-                "title": "Alguns abstracts não puderam ser obtidos",
-                "detail": f"Falha na recuperação de {content_failure_count} abstract(s).",
+                "title": "Alguns textos não puderam ser obtidos",
+                "detail": f"Falha na recuperação de {content_failure_count} conteúdo(s).",
                 "source_url": None,
             }
         )
@@ -332,9 +350,12 @@ def build_abstract_analysis_cards(
             "percentage": _percentage(len(assessed), retrieved_article_count),
             "verified_count": len(assessed),
             "total_count": retrieved_article_count,
+            "full_text_count": full_text_count,
+            "abstract_only_count": abstract_count,
+            "full_text_percentage": _percentage(full_text_count, len(assessed)),
             "explanation": (
                 f"{len(assessed)} de {retrieved_article_count} artigo(s) recuperados "
-                "tiveram o abstract analisado. Este percentual mede cobertura, não verdade."
+                "tiveram trechos analisados. Este percentual mede cobertura, não verdade."
             ),
         },
         "meta_analysis": {
@@ -348,10 +369,10 @@ def build_abstract_analysis_cards(
             "not_comparable_count": len(meta) - len(comparable_meta),
             "explanation": (
                 f"{len(comparable_meta)} meta-análise(s) foram comparadas; "
-                f"{compatible_meta} apresentaram resultado compatível no abstract. "
+                f"{compatible_meta} apresentaram resultado compatível nos trechos. "
                 f"{len(meta) - len(comparable_meta)} não responderam diretamente à alegação."
                 if comparable_meta
-                else "Nenhuma meta-análise comparável foi identificada nos abstracts."
+                else "Nenhuma meta-análise comparável foi identificada nos trechos analisados."
             ),
         },
         "clinical_trials": {

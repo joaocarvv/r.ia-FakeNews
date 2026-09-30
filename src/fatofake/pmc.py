@@ -18,8 +18,13 @@ from .transport import default_ssl_context
 
 PMC_ID_CONVERTER_URL = "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/"
 NCBI_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+PMC_BIOC_URL = (
+    "https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/"
+    "BioC_xml/{pmcid}/unicode"
+)
 JsonFetcher = Callable[[str, Mapping[str, str]], Mapping[str, Any]]
 XmlFetcher = Callable[[str, Mapping[str, str]], bytes]
+TRANSIENT_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
 
 
 class ContentRetrievalError(RuntimeError):
@@ -32,6 +37,7 @@ class ContentSection:
 
     title: str
     text: str
+    page_number: int | None = None
 
 
 @dataclass(frozen=True)
@@ -67,7 +73,14 @@ class PmcClient:
         fetch_json: JsonFetcher | None = None,
         fetch_xml: XmlFetcher | None = None,
         ssl_context: ssl.SSLContext | None = None,
+        max_attempts: int = 3,
+        retry_delay: float = 1.0,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        if max_attempts < 1:
+            raise ValueError("max_attempts deve ser maior ou igual a 1.")
+        if retry_delay < 0:
+            raise ValueError("retry_delay não pode ser negativo.")
         self.email = email
         self.api_key = api_key
         self.timeout = timeout
@@ -75,6 +88,9 @@ class PmcClient:
         self._ssl_context = ssl_context or default_ssl_context()
         self._fetch_json = fetch_json or self._request_json
         self._fetch_xml = fetch_xml or self._request_xml
+        self.max_attempts = max_attempts
+        self.retry_delay = retry_delay
+        self._sleep = sleep
 
     def _wait_for_rate_limit(self) -> None:
         minimum_interval = 0.11 if self.api_key else 0.34
@@ -85,20 +101,30 @@ class PmcClient:
             time.sleep(minimum_interval - elapsed)
 
     def _request_bytes(self, url: str, params: Mapping[str, str]) -> bytes:
-        self._wait_for_rate_limit()
         request_url = f"{url}?{urlencode(params)}"
         request = Request(request_url, headers={"User-Agent": "FatoOuFake/0.1"})
-        try:
-            with urlopen(
-                request,
-                timeout=self.timeout,
-                context=self._ssl_context,
-            ) as response:
-                return response.read()
-        except (HTTPError, URLError, TimeoutError) as error:
-            raise ContentRetrievalError(f"Falha ao consultar o NCBI: {error}") from error
-        finally:
-            self._last_request_at = time.monotonic()
+        last_error: Exception | None = None
+        for attempt in range(self.max_attempts):
+            self._wait_for_rate_limit()
+            try:
+                with urlopen(
+                    request,
+                    timeout=self.timeout,
+                    context=self._ssl_context,
+                ) as response:
+                    return response.read()
+            except HTTPError as error:
+                last_error = error
+                if error.code not in TRANSIENT_HTTP_STATUS or attempt + 1 == self.max_attempts:
+                    break
+            except (URLError, TimeoutError) as error:
+                last_error = error
+                if attempt + 1 == self.max_attempts:
+                    break
+            finally:
+                self._last_request_at = time.monotonic()
+            self._sleep(min(30.0, self.retry_delay * (2**attempt)))
+        raise ContentRetrievalError(f"Falha ao consultar o NCBI: {last_error}") from last_error
 
     def _request_json(self, url: str, params: Mapping[str, str]) -> Mapping[str, Any]:
         try:
@@ -169,13 +195,56 @@ class PmcClient:
         if body is not None:
             for index, section in enumerate(body.findall("./sec"), start=1):
                 title = _element_text(section.find("./title")) or f"Seção {index}"
-                paragraphs = [
-                    _element_text(paragraph) for paragraph in section.findall(".//p")
-                ]
-                section_text = "\n\n".join(text for text in paragraphs if text)
+                blocks: list[str] = []
+                for child in section.iter():
+                    if child.tag == "p":
+                        text = _element_text(child)
+                        if text:
+                            blocks.append(text)
+                    elif child.tag == "table-wrap":
+                        label = _element_text(child.find("./label")) or "Tabela"
+                        caption = _element_text(child.find("./caption"))
+                        table = _element_text(child.find(".//table"))
+                        rendered = " — ".join(part for part in (label, caption, table) if part)
+                        if rendered:
+                            blocks.append(rendered)
+                section_text = "\n\n".join(dict.fromkeys(blocks))
                 if section_text:
                     sections.append(ContentSection(title=title, text=section_text))
         return full_text, tuple(sections)
+
+    def fetch_pmc_bioc_full_text(
+        self,
+        pmcid: str,
+    ) -> tuple[str | None, tuple[ContentSection, ...]]:
+        """Recupera o subconjunto reutilizável do PMC pela API oficial BioC."""
+
+        raw_xml = self._fetch_xml(PMC_BIOC_URL.format(pmcid=pmcid), {})
+        try:
+            root = ET.fromstring(raw_xml)
+        except ET.ParseError as error:
+            raise ContentRetrievalError("A API BioC do PMC retornou XML inválido.") from error
+
+        grouped: dict[str, list[str]] = {}
+        for passage in root.findall(".//passage"):
+            text = _element_text(passage.find("./text"))
+            if not text:
+                continue
+            infons = {
+                str(infon.attrib.get("key") or ""): _element_text(infon)
+                for infon in passage.findall("./infon")
+            }
+            raw_section = infons.get("section_type") or infons.get("type") or "Texto completo"
+            section = raw_section.replace("_", " ").strip().title()
+            grouped.setdefault(section, []).append(text)
+
+        sections = tuple(
+            ContentSection(title=title, text="\n\n".join(dict.fromkeys(parts)))
+            for title, parts in grouped.items()
+            if parts
+        )
+        full_text = "\n\n".join(section.text for section in sections) or None
+        return full_text, sections
 
 
 def retrieve_article_content(publication: Publication, client: PmcClient) -> ArticleContent:
@@ -187,6 +256,13 @@ def retrieve_article_content(publication: Publication, client: PmcClient) -> Art
     sections: tuple[ContentSection, ...] = ()
     if pmcid:
         full_text, sections = client.fetch_pmc_full_text(pmcid)
+        if not full_text and hasattr(client, "fetch_pmc_bioc_full_text"):
+            try:
+                full_text, sections = client.fetch_pmc_bioc_full_text(pmcid)
+            except ContentRetrievalError:
+                # Nem todo registro do PMC pertence ao subconjunto reutilizável.
+                # Nesse caso, outros caminhos abertos ainda podem ser tentados.
+                full_text, sections = None, ()
 
     return ArticleContent(
         pmid=publication.pmid,

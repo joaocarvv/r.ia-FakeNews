@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from fatofake.gemini_evidence import (
     EvidenceDocument,
+    EvidencePassage,
     GeminiAnalysisError,
     GeminiEvidenceAnalyzer,
 )
@@ -88,7 +89,63 @@ class GeminiEvidenceTests(unittest.TestCase):
         self.assertEqual(result[0].relation, "UNCERTAIN")
         self.assertEqual(result[0].confidence, 0.0)
         self.assertIsNone(result[0].evidence_quote)
-        self.assertIn("não foi localizado", result[0].rationale)
+        self.assertIn("citação literal", result[0].rationale)
+
+    def test_direct_relation_without_quote_is_invalidated(self):
+        def post(_url, _payload):
+            return response_with({"assessments": [{
+                "pmid": "123",
+                "relation": "SUPPORTS",
+                "confidence": 0.95,
+                "rationale": "Direct result without citation.",
+                "evidence_quote": "",
+                "passage_id": "",
+                "study_design": "RANDOMIZED_CLINICAL_TRIAL",
+            }]})
+
+        assessment = GeminiEvidenceAnalyzer("secret", post_json=post).analyze(
+            "Vitamin C reduces cold duration.", [self.document()]
+        )[0]
+
+        self.assertEqual(assessment.relation, "UNCERTAIN")
+        self.assertEqual(assessment.confidence, 0.0)
+
+    def test_preserves_section_page_and_full_text_scope_from_selected_passage(self):
+        passage = EvidencePassage(
+            passage_id="123:results:1",
+            text="The intervention reduced symptoms by 18 percent.",
+            section="Results",
+            page_number=6,
+            source_url="https://example.org/article.pdf",
+            content_scope="OPEN_ACCESS_FULL_TEXT",
+        )
+        document = EvidenceDocument(
+            pmid="123",
+            title="Controlled trial",
+            abstract="",
+            source_url="https://pubmed.ncbi.nlm.nih.gov/123/",
+            passages=(passage,),
+        )
+
+        def post(_url, _payload):
+            return response_with({"assessments": [{
+                "pmid": "123",
+                "relation": "SUPPORTS",
+                "confidence": 0.9,
+                "rationale": "Direct result.",
+                "evidence_quote": "The intervention reduced symptoms by 18 percent.",
+                "passage_id": "123:results:1",
+                "study_design": "RANDOMIZED_CLINICAL_TRIAL",
+            }]})
+
+        assessment = GeminiEvidenceAnalyzer("secret", post_json=post).analyze(
+            "The intervention reduces symptoms.", [document]
+        )[0]
+
+        self.assertEqual(assessment.evidence_section, "Results")
+        self.assertEqual(assessment.evidence_page, 6)
+        self.assertEqual(assessment.content_scope, "OPEN_ACCESS_FULL_TEXT")
+        self.assertEqual(assessment.source_url, "https://example.org/article.pdf")
 
     def test_ignores_unknown_or_duplicate_pmids(self):
         def post(_url, _payload):

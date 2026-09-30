@@ -245,10 +245,14 @@ WEB_UI_HTML = r"""<!doctype html>
       const verification = data.verification || {};
       const submitted = data.submitted_article || {};
       const extractedClaim = document.getElementById('extracted-claim');
-      extractedClaim.textContent = submitted.primary_claim ? `Alegação extraída do artigo: ${submitted.primary_claim}` : '';
+      const sourceScope = submitted.content_scope ? ` [escopo: ${submitted.content_scope}]` : '';
+      extractedClaim.textContent = submitted.primary_claim ? `Alegação extraída do artigo${sourceScope}: ${submitted.primary_claim}` : '';
       extractedClaim.style.display = submitted.primary_claim ? 'block' : 'none';
       const claimQuote = document.getElementById('claim-quote');
-      claimQuote.textContent = submitted.primary_claim_quote ? `Trecho do artigo: “${submitted.primary_claim_quote}”` : '';
+      const submittedLocation = submitted.primary_claim_section
+        ? ` — seção ${submitted.primary_claim_section}${submitted.primary_claim_page ? `, página ${submitted.primary_claim_page}` : ' (fonte sem paginação)'}`
+        : (submitted.primary_claim_page ? ` — página ${submitted.primary_claim_page}` : '');
+      claimQuote.textContent = submitted.primary_claim_quote ? `Trecho do artigo: “${submitted.primary_claim_quote}”${submittedLocation}` : '';
       claimQuote.style.display = submitted.primary_claim_quote ? 'block' : 'none';
       document.getElementById('headline').textContent = text(report.headline);
       document.getElementById('summary').textContent = text(report.summary);
@@ -273,7 +277,10 @@ WEB_UI_HTML = r"""<!doctype html>
         confidenceComponents.appendChild(li);
       });
       document.getElementById('verification-score').textContent = percentage(partial.percentage);
-      document.getElementById('verification-explanation').textContent = text(partial.explanation);
+      const fullTextDetail = partial.full_text_percentage == null
+        ? ''
+        : ` Texto completo em ${Math.round(partial.full_text_percentage)}% dos artigos analisados (${partial.full_text_count || 0} de ${partial.verified_count || 0}).`;
+      document.getElementById('verification-explanation').textContent = text(partial.explanation) + fullTextDetail;
       const meta = verification.meta_analysis || {};
       document.getElementById('meta-score').textContent = percentage(meta.compatibility_percentage, ' compatível');
       document.getElementById('meta-explanation').textContent = text(meta.explanation);
@@ -300,9 +307,17 @@ WEB_UI_HTML = r"""<!doctype html>
         addTextElement(card, 'div', `${item.journal || 'Periódico não informado'} · ${item.publication_date || 'data não informada'} · ${item.access_level}`, 'article-meta');
         (item.assessments || []).forEach(assessment => {
           const evidence = document.createElement('div'); evidence.className = 'evidence';
+          const cited = assessment.evidence || {};
           addTextElement(evidence, 'span', labels[assessment.relation] || assessment.relation, 'badge');
-          addTextElement(evidence, 'p', assessment.evidence && assessment.evidence.text);
+          if (cited.text) addTextElement(evidence, 'p', `“${cited.text}”`);
+          const section = cited.section || (cited.content_scope === 'ABSTRACT' ? 'Abstract' : 'Seção não identificada');
+          const location = cited.page
+            ? `Esse trecho foi encontrado na seção ${section}, página ${cited.page}.`
+            : `Esse trecho foi encontrado na seção ${section}; a fonte não fornece paginação.`;
+          addTextElement(evidence, 'div', location, 'article-meta');
           addTextElement(evidence, 'div', `Confiança do classificador: ${Math.round((assessment.confidence || 0) * 100)}%`, 'article-meta');
+          const evidenceUrl = safeUrl(cited.source_url);
+          if (evidenceUrl) { const link = document.createElement('a'); link.href = evidenceUrl; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Abrir trecho na fonte'; evidence.appendChild(link); }
           card.appendChild(evidence);
         });
         articles.appendChild(card);

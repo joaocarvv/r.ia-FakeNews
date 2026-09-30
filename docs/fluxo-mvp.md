@@ -111,7 +111,11 @@ Essa etapa cria a base de ingestão para uma experiência semelhante ao Notebook
 
 Resultados neutros são apresentados como contexto relacionado, não como confirmação. A interface nunca interpreta o índice como probabilidade de verdade nem rotula automaticamente o artigo como verdadeiro ou falso.
 
-**Próxima etapa:** criar a biblioteca de fontes da análise, fragmentar cada documento com proveniência de página e responder perguntas apenas com citações dos trechos recuperados. Em paralelo, construir um conjunto prata para medir `Recall@K`, `Precision@K`, MRR, cobertura e duplicação residual.
+**Etapa concluída:** priorizar texto completo do PMC, PDFs enviados e documentos abertos indicados pelo OpenAlex; extrair seções e tabelas, selecionar Resultados/Conclusão e preservar URL, seção, página e identificador de cada trecho citado. Quando XML ou HTML não oferece paginação física, a resposta declara a página como indisponível em vez de estimá-la. O abstract permanece como fallback identificado.
+
+**Comprovação:** [`notebooks/25_validacao_texto_completo_rastreavel.ipynb`](../notebooks/25_validacao_texto_completo_rastreavel.ipynb).
+
+**Próxima etapa:** construir um conjunto prata para medir `Recall@K`, `Precision@K`, MRR, cobertura de texto completo e precisão da localização de seção/página em PDFs reais.
 
 ## Fluxo
 

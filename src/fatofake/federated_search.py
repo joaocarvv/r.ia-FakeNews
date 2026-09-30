@@ -57,6 +57,7 @@ class ScientificWork:
     retrieval_score: float = 0.0
     citation_count: int | None = None
     related_work_count: int | None = None
+    full_text_url: str | None = None
 
     def to_publication(self) -> Publication | None:
         """Converte apenas trabalhos vinculados ao PubMed para o fluxo atual."""
@@ -285,6 +286,7 @@ def deduplicate_works(
                         ),
                         default=None,
                     ),
+                    full_text_url=_first_nonempty(records, "full_text_url"),
                 ),
             )
         )
@@ -444,6 +446,11 @@ class OpenAlexSearchProvider:
             else {}
         )
         source = primary.get("source") if isinstance(primary.get("source"), Mapping) else {}
+        best_oa = (
+            item.get("best_oa_location")
+            if isinstance(item.get("best_oa_location"), Mapping)
+            else {}
+        )
         authors: list[str] = []
         for authorship in item.get("authorships") or []:
             if not isinstance(authorship, Mapping):
@@ -489,6 +496,11 @@ class OpenAlexSearchProvider:
             source_ranks=(SourceRank(self.name, query, rank),),
             citation_count=citation_count,
             related_work_count=related_work_count,
+            full_text_url=(
+                self._text(best_oa.get("pdf_url"))
+                or self._text(primary.get("pdf_url"))
+                or self._text(best_oa.get("landing_page_url"))
+            ),
         )
 
     def search(self, query: str, *, max_results: int) -> ProviderSearchResult:

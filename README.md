@@ -15,6 +15,9 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 - `notebooks/20_validacao_pesquisa_adversarial.ipynb`: validação controlada do pesquisador, crítico e árbitro determinístico com checagem de proveniência.
 - `notebooks/21_validacao_fontes_cientificas.ipynb`: auditoria ao vivo de acesso e papel das fontes científicas abertas, editoriais e manuais consideradas pelo grupo.
 - `notebooks/22_validacao_busca_federada.ipynb`: validação da normalização, deduplicação, proveniência e ranking federado entre PubMed, OpenAlex e SciELO via OpenAlex.
+- `notebooks/23_validacao_ingestao_liteparse.ipynb`: validação da leitura local de PDFs e da repetição segura de falhas temporárias do Gemini.
+- `notebooks/24_validacao_verificacao_artigo.ipynb`: validação da busca relacionada, compatibilidade textual e índice de cobertura da verificação.
+- `notebooks/25_validacao_texto_completo_rastreavel.ipynb`: validação da prioridade de texto completo, seções, tabelas e proveniência por página.
 - `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
 - `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
 - `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.

@@ -1,4 +1,4 @@
-"""Análise estruturada e rastreável de abstracts com a API Gemini."""
+"""Análise estruturada de trechos científicos rastreáveis com a API Gemini."""
 
 from __future__ import annotations
 
@@ -30,17 +30,49 @@ class GeminiAnalysisError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class EvidencePassage:
+    passage_id: str
+    text: str
+    section: str
+    source_url: str
+    page_number: int | None = None
+    content_scope: str = "ABSTRACT"
+
+    def __post_init__(self) -> None:
+        if not self.passage_id.strip() or not self.text.strip() or not self.section.strip():
+            raise ValueError("Identificador, texto e seção do trecho são obrigatórios.")
+        if not self.source_url.startswith(("https://", "http://")):
+            raise ValueError("A fonte do trecho precisa ser uma URL HTTP(S).")
+
+
+@dataclass(frozen=True)
 class EvidenceDocument:
     pmid: str
     title: str
     abstract: str
     source_url: str
+    passages: tuple[EvidencePassage, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.pmid.strip() or not self.title.strip() or not self.abstract.strip():
-            raise ValueError("PMID, título e abstract são obrigatórios.")
+        if not self.pmid.strip() or not self.title.strip():
+            raise ValueError("PMID e título são obrigatórios.")
+        if not self.abstract.strip() and not self.passages:
+            raise ValueError("O documento precisa de abstract ou trechos.")
         if not self.source_url.startswith(("https://", "http://")):
             raise ValueError("A fonte do documento precisa ser uma URL HTTP(S).")
+
+    @property
+    def evidence_passages(self) -> tuple[EvidencePassage, ...]:
+        if self.passages:
+            return self.passages
+        return (
+            EvidencePassage(
+                passage_id=f"{self.pmid}:abstract",
+                text=self.abstract,
+                section="Abstract",
+                source_url=self.source_url,
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -52,13 +84,18 @@ class GeminiEvidenceAssessment:
     evidence_quote: str | None
     study_design: str
     model_name: str
+    passage_id: str | None = None
+    evidence_section: str | None = None
+    evidence_page: int | None = None
+    content_scope: str = "ABSTRACT"
+    source_url: str | None = None
 
 
 JsonPoster = Callable[[str, Mapping[str, Any]], Mapping[str, Any]]
 
 
 class GeminiEvidenceAnalyzer:
-    """Compara uma alegação com abstracts sem permitir evidência sem proveniência."""
+    """Compara uma alegação com trechos sem permitir evidência sem proveniência."""
 
     def __init__(
         self,
@@ -173,6 +210,7 @@ class GeminiEvidenceAnalyzer:
                             },
                             "rationale": {"type": "STRING"},
                             "evidence_quote": {"type": "STRING"},
+                            "passage_id": {"type": "STRING"},
                             "study_design": {
                                 "type": "STRING",
                                 "enum": sorted(_STUDY_DESIGNS),
@@ -184,6 +222,7 @@ class GeminiEvidenceAnalyzer:
                             "confidence",
                             "rationale",
                             "evidence_quote",
+                            "passage_id",
                             "study_design",
                         ],
                     },
@@ -198,21 +237,32 @@ class GeminiEvidenceAnalyzer:
             {
                 "pmid": item.pmid,
                 "title": item.title,
-                "abstract": item.abstract,
-                "source_url": item.source_url,
+                "passages": [
+                    {
+                        "passage_id": passage.passage_id,
+                        "section": passage.section,
+                        "page_number": passage.page_number,
+                        "content_scope": passage.content_scope,
+                        "source_url": passage.source_url,
+                        "text": passage.text,
+                    }
+                    for passage in item.evidence_passages
+                ],
             }
             for item in documents
         ]
         return (
             "Você é um classificador de compatibilidade científica. Compare a "
-            "ALEGAÇÃO apenas com cada ABSTRACT fornecido, sem usar conhecimento "
+            "ALEGAÇÃO apenas com os TRECHOS fornecidos, sem usar conhecimento "
             "externo. SUPPORTS significa que o resultado descrito é compatível; "
             "CONTRADICTS significa resultado incompatível; NEUTRAL significa que o "
             "estudo aborda o tema sem responder à alegação; UNCERTAIN significa que "
-            "o abstract não permite decidir. A confiança mede somente a segurança da "
+            "os trechos não permitem decidir. A confiança mede somente a segurança da "
             "classificação textual, nunca a probabilidade de verdade. evidence_quote "
-            "deve ser uma citação curta, literal e contígua do abstract; use string "
-            "vazia se não houver trecho. Não conclua que a alegação é verdadeira ou "
+            "deve ser uma citação curta, literal e contígua de um trecho. passage_id "
+            "deve identificar exatamente esse trecho; use strings vazias se não houver "
+            "evidência. Priorize Results/Resultados e Conclusion/Conclusão sobre "
+            "Introdução. Não conclua que a alegação é verdadeira ou "
             "falsa.\n\nALEGAÇÃO:\n"
             + claim.strip()
             + "\n\nDOCUMENTOS JSON:\n"
@@ -240,6 +290,10 @@ class GeminiEvidenceAnalyzer:
         if not documents:
             return ()
         by_pmid = {item.pmid: item for item in documents}
+        passages_by_pmid = {
+            item.pmid: {passage.passage_id: passage for passage in item.evidence_passages}
+            for item in documents
+        }
         if len(by_pmid) != len(documents):
             raise ValueError("Os documentos não podem repetir o mesmo PMID.")
 
@@ -282,13 +336,24 @@ class GeminiEvidenceAnalyzer:
                 confidence = 0.0
             rationale = " ".join(str(raw.get("rationale") or "").split())
             quote = " ".join(str(raw.get("evidence_quote") or "").split())[:500]
-            normalized_abstract = " ".join(by_pmid[pmid].abstract.split())
-            if quote and quote not in normalized_abstract:
+            passage_id = str(raw.get("passage_id") or "").strip()
+            available_passages = passages_by_pmid[pmid]
+            if not passage_id and len(available_passages) == 1:
+                passage_id = next(iter(available_passages))
+            passage = available_passages.get(passage_id)
+            normalized_source = " ".join(passage.text.split()) if passage else ""
+            missing_direct_evidence = relation in {"SUPPORTS", "CONTRADICTS"} and (
+                not quote or passage is None
+            )
+            invalid_quote = bool(quote) and (
+                passage is None or quote not in normalized_source
+            )
+            if missing_direct_evidence or invalid_quote:
                 relation = "UNCERTAIN"
                 confidence = 0.0
                 rationale = (
-                    "O trecho devolvido pelo modelo não foi localizado literalmente "
-                    "no abstract; a avaliação foi invalidada."
+                    "A avaliação direta não apresentou uma citação literal localizada "
+                    "no trecho indicado; a avaliação foi invalidada."
                 )
                 quote = ""
             results[pmid] = GeminiEvidenceAssessment(
@@ -299,5 +364,10 @@ class GeminiEvidenceAnalyzer:
                 evidence_quote=quote or None,
                 study_design=design,
                 model_name=self.model_name,
+                passage_id=passage.passage_id if passage else None,
+                evidence_section=passage.section if passage else None,
+                evidence_page=passage.page_number if passage else None,
+                content_scope=passage.content_scope if passage else "UNKNOWN",
+                source_url=passage.source_url if passage else by_pmid[pmid].source_url,
             )
         return tuple(results[item.pmid] for item in documents if item.pmid in results)

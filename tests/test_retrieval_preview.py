@@ -15,6 +15,7 @@ from fatofake import (
 )
 from fatofake.retrieval_preview import GenericHealthQueryPlanner, RetrievalPreviewRunner
 from fatofake.gemini_evidence import GeminiEvidenceAssessment
+from fatofake.pmc import ContentSection
 
 
 class ProviderStub:
@@ -204,6 +205,69 @@ class RetrievalPreviewTests(unittest.TestCase):
             100,
         )
         self.assertNotIn("verdadeir", str(result).casefold())
+
+    def test_prioritizes_results_from_full_text_and_exposes_provenance(self):
+        class FullTextClientStub:
+            def fetch_pubmed_abstract(self, _pmid):
+                return "The abstract mentions symptoms without an estimate."
+
+            def resolve_pmcid(self, _pmid):
+                return "PMC123"
+
+            def fetch_pmc_full_text(self, _pmcid):
+                sections = (
+                    ContentSection("Introduction", "Symptoms are common in adults."),
+                    ContentSection(
+                        "Results",
+                        "The intervention reduced symptoms by 18 percent in adults.",
+                    ),
+                    ContentSection(
+                        "Conclusion",
+                        "The intervention was associated with fewer symptoms.",
+                    ),
+                )
+                return " ".join(section.text for section in sections), sections
+
+        class CapturingAnalyzer:
+            def analyze(self, _claim, documents):
+                self.document = documents[0]
+                passage = next(
+                    item for item in self.document.passages if item.section == "Results"
+                )
+                return (GeminiEvidenceAssessment(
+                    pmid=self.document.pmid,
+                    relation="SUPPORTS",
+                    confidence=0.9,
+                    rationale="The results report a compatible estimate.",
+                    evidence_quote="The intervention reduced symptoms by 18 percent in adults.",
+                    study_design="RANDOMIZED_CLINICAL_TRIAL",
+                    model_name="controlled-gemini",
+                    passage_id=passage.passage_id,
+                    evidence_section=passage.section,
+                    evidence_page=passage.page_number,
+                    content_scope=passage.content_scope,
+                    source_url=passage.source_url,
+                ),)
+
+        analyzer = CapturingAnalyzer()
+        runner = RetrievalPreviewRunner(
+            FederatedSearchEngine((ProviderStub("PubMed"),)),
+            abstract_client=FullTextClientStub(),
+            evidence_analyzer=analyzer,
+        )
+
+        result = runner.analyze("The intervention reduces symptoms in adults.")
+
+        article = result["articles"][0]
+        evidence = article["assessments"][0]["evidence"]
+        self.assertEqual(article["access_level"], "FULL_TEXT")
+        self.assertEqual(evidence["section"], "Results")
+        self.assertIsNone(evidence["page"])
+        self.assertEqual(evidence["content_scope"], "FULL_TEXT")
+        self.assertEqual(
+            result["verification"]["partial_verification"]["full_text_percentage"],
+            100,
+        )
 
 
 if __name__ == "__main__":

@@ -16,12 +16,15 @@ from .article_ingestion import (
     PubMedReferenceResolver,
 )
 from .document_parsing import DocumentParsingError, LiteParseDocumentParser
+from .chunking import ChunkingConfig, ChunkingError, chunk_article_content
 from .gemini_evidence import (
     EvidenceDocument,
+    EvidencePassage,
     GeminiAnalysisError,
     GeminiEvidenceAnalyzer,
     GeminiEvidenceAssessment,
 )
+from .open_access_content import OpenAccessContentClient, OpenAccessContentError
 from .federated_search import (
     FederatedSearchEngine,
     FederatedSearchError,
@@ -38,6 +41,7 @@ from .federated_search import (
 from .input_validation import validate_analysis_input
 from .pmc import ContentRetrievalError, PmcClient
 from .pubmed import PubMedClient, PubMedError
+from .retrieval import Bm25Index, RetrievalError
 from .search_preparation import SearchPlan, prepare_search_plan
 from .verification_cards import (
     build_abstract_analysis_cards,
@@ -46,7 +50,7 @@ from .verification_cards import (
 
 
 RETRIEVAL_MODE_LABEL = (
-    "BUSCA REAL — abstracts analisados pelo Gemini com limitações explícitas"
+    "BUSCA REAL — texto completo priorizado, com proveniência por trecho"
 )
 _STOPWORDS = {
     "a",
@@ -180,7 +184,7 @@ class GenericHealthQueryPlanner:
 
 
 class RetrievalPreviewRunner:
-    """Recupera metadados reais, mas se abstém de interpretar os artigos."""
+    """Recupera fontes reais e compara somente trechos com proveniência."""
 
     def __init__(
         self,
@@ -190,6 +194,7 @@ class RetrievalPreviewRunner:
         abstract_client: PmcClient | None = None,
         evidence_analyzer: GeminiEvidenceAnalyzer | None = None,
         related_client: PubMedClient | None = None,
+        open_access_client: OpenAccessContentClient | None = None,
         max_results_per_query: int = 5,
         max_analysis_articles: int = 5,
     ) -> None:
@@ -200,6 +205,7 @@ class RetrievalPreviewRunner:
         self.abstract_client = abstract_client
         self.evidence_analyzer = evidence_analyzer
         self.related_client = related_client
+        self.open_access_client = open_access_client
         self.max_results_per_query = max_results_per_query
         self.max_analysis_articles = max_analysis_articles
 
@@ -244,14 +250,20 @@ class RetrievalPreviewRunner:
                 )
         return tuple(works), tuple(failures)
 
-    def _analyze_abstracts(
+    def _analyze_documents(
         self,
         claim: str,
         works: Sequence[Any],
-    ) -> tuple[tuple[GeminiEvidenceAssessment, ...], int, str | None]:
+    ) -> tuple[
+        tuple[GeminiEvidenceAssessment, ...],
+        int,
+        str | None,
+        dict[str, dict[str, Any]],
+    ]:
         if self.abstract_client is None or self.evidence_analyzer is None:
-            return (), 0, None
+            return (), 0, None, {}
         documents: list[EvidenceDocument] = []
+        content_metadata: dict[str, dict[str, Any]] = {}
         failures = 0
         for work in works:
             if len(documents) == self.max_analysis_articles:
@@ -259,11 +271,95 @@ class RetrievalPreviewRunner:
             if not work.pmid:
                 continue
             try:
-                abstract = self.abstract_client.fetch_pubmed_abstract(work.pmid)
-            except ContentRetrievalError:
-                failures += 1
-                continue
-            if not abstract:
+                publication = work.to_publication()
+                if publication is None:
+                    continue
+                if hasattr(self.abstract_client, "resolve_pmcid"):
+                    from .pmc import retrieve_article_content
+
+                    content = retrieve_article_content(publication, self.abstract_client)
+                    if (
+                        not content.full_text
+                        and self.open_access_client is not None
+                        and work.full_text_url
+                    ):
+                        try:
+                            content = self.open_access_client.retrieve(
+                                pmid=work.pmid,
+                                pmcid=content.pmcid,
+                                doi=work.doi,
+                                pubmed_url=work.url,
+                                full_text_url=work.full_text_url,
+                                abstract=content.abstract,
+                            )
+                        except OpenAccessContentError:
+                            pass
+                    chunks = chunk_article_content(
+                        content,
+                        ChunkingConfig(max_words=220, overlap_words=40),
+                    )
+                    ranked = list(Bm25Index(chunks).search(claim, top_k=8))
+                    def section_priority(title: str) -> int:
+                        normalized = title.casefold()
+                        if "result" in normalized:
+                            return 0
+                        if "conclu" in normalized:
+                            return 1
+                        if "discuss" in normalized:
+                            return 2
+                        return 3
+
+                    ranked.sort(
+                        key=lambda item: (
+                            section_priority(item.chunk.section),
+                            item.rank,
+                        )
+                    )
+                    selected_chunks = tuple(item.chunk for item in ranked[:4])
+                    if not selected_chunks:
+                        selected_chunks = chunks[:2]
+                    passages = tuple(
+                        EvidencePassage(
+                            passage_id=chunk.chunk_id,
+                            text=chunk.text,
+                            section=chunk.section,
+                            page_number=chunk.page_number,
+                            source_url=chunk.source_url,
+                            content_scope=content.access_level,
+                        )
+                        for chunk in selected_chunks
+                    )
+                    abstract = content.abstract or ""
+                    content_metadata[work.pmid] = {
+                        "access_level": content.access_level,
+                        "pmcid": content.pmcid,
+                        "pmc_url": content.pmc_url,
+                        "analyzed_passage_count": len(passages),
+                        "analyzed_sections": list(
+                            dict.fromkeys(passage.section for passage in passages)
+                        ),
+                    }
+                else:
+                    abstract = self.abstract_client.fetch_pubmed_abstract(work.pmid)
+                    if not abstract:
+                        failures += 1
+                        continue
+                    passages = (
+                        EvidencePassage(
+                            passage_id=f"{work.pmid}:abstract",
+                            text=abstract,
+                            section="Abstract",
+                            source_url=work.url,
+                        ),
+                    )
+                    content_metadata[work.pmid] = {
+                        "access_level": "ABSTRACT_ONLY",
+                        "pmcid": None,
+                        "pmc_url": None,
+                        "analyzed_passage_count": 1,
+                        "analyzed_sections": ["Abstract"],
+                    }
+            except (ContentRetrievalError, ChunkingError, RetrievalError):
                 failures += 1
                 continue
             documents.append(
@@ -272,15 +368,21 @@ class RetrievalPreviewRunner:
                     title=work.title,
                     abstract=abstract,
                     source_url=work.url,
+                    passages=passages,
                 )
             )
         if not documents:
-            return (), failures, None
+            return (), failures, None, content_metadata
         try:
             assessments = self.evidence_analyzer.analyze(claim, documents)
         except GeminiAnalysisError:
-            return (), failures, "A análise estruturada do Gemini não respondeu."
-        return assessments, failures, None
+            return (
+                (),
+                failures,
+                "A análise estruturada do Gemini não respondeu.",
+                content_metadata,
+            )
+        return assessments, failures, None, content_metadata
 
     def analyze(
         self,
@@ -340,10 +442,12 @@ class RetrievalPreviewRunner:
             if not work.doi or work.doi.strip().casefold() not in normalized_exclusions
         )
 
-        assessments, content_failure_count, analysis_failure = self._analyze_abstracts(
-            analysis_input.claim,
-            works,
-        )
+        (
+            assessments,
+            content_failure_count,
+            analysis_failure,
+            content_metadata,
+        ) = self._analyze_documents(analysis_input.claim, works)
         assessments_by_pmid = {item.pmid: item for item in assessments}
 
         articles = [
@@ -355,11 +459,18 @@ class RetrievalPreviewRunner:
                 "publication_date": work.publication_date,
                 "doi": work.doi,
                 "url": work.url,
-                "access_level": (
-                    "ABSTRACT_ONLY" if work.pmid in assessments_by_pmid else "METADATA_ONLY"
+                "access_level": content_metadata.get(work.pmid or "", {}).get(
+                    "access_level",
+                    "METADATA_ONLY",
                 ),
-                "pmcid": None,
-                "pmc_url": None,
+                "pmcid": content_metadata.get(work.pmid or "", {}).get("pmcid"),
+                "pmc_url": content_metadata.get(work.pmid or "", {}).get("pmc_url"),
+                "analyzed_passage_count": content_metadata.get(work.pmid or "", {}).get(
+                    "analyzed_passage_count", 0
+                ),
+                "analyzed_sections": content_metadata.get(work.pmid or "", {}).get(
+                    "analyzed_sections", []
+                ),
                 "quality": {
                     "study_design": (
                         assessments_by_pmid[work.pmid].study_design
@@ -382,10 +493,15 @@ class RetrievalPreviewRunner:
                             "model_name": assessments_by_pmid[work.pmid].model_name,
                             "evidence": {
                                 "text": assessments_by_pmid[work.pmid].evidence_quote,
-                                "section": "Abstract",
+                                "section": assessments_by_pmid[work.pmid].evidence_section,
+                                "page": assessments_by_pmid[work.pmid].evidence_page,
+                                "content_scope": assessments_by_pmid[work.pmid].content_scope,
+                                "passage_id": assessments_by_pmid[work.pmid].passage_id,
                                 "pmid": work.pmid,
                                 "doi": work.doi,
-                                "source_url": work.url,
+                                "source_url": (
+                                    assessments_by_pmid[work.pmid].source_url or work.url
+                                ),
                             },
                         }
                     ]
@@ -404,8 +520,8 @@ class RetrievalPreviewRunner:
         ]
         limitations = [
             (
-                "A análise automática usa apenas abstracts; métodos, tabelas e o texto "
-                "completo ainda não foram conferidos."
+                "A análise priorizou texto completo quando disponível e usou abstracts "
+                "somente como fallback explicitamente identificado."
                 if assessments
                 else "Esta execução recuperou artigos, mas não analisou seus resultados."
             ),
@@ -422,7 +538,7 @@ class RetrievalPreviewRunner:
             )
         if content_failure_count:
             limitations.append(
-                f"{content_failure_count} abstract(s) não puderam ser recuperados."
+                f"{content_failure_count} texto(s) científico(s) não puderam ser recuperados."
             )
         if analysis_failure:
             limitations.append(analysis_failure)
@@ -453,10 +569,10 @@ class RetrievalPreviewRunner:
             "NEUTRAL": "INCONCLUSIVE",
         }
         headline_by_conclusion = {
-            "COMPATIBLE_WITH_EVIDENCE": "Compatibilidade preliminar nos abstracts",
-            "INCOMPATIBLE_WITH_EVIDENCE": "Incompatibilidade preliminar nos abstracts",
-            "CONFLICTING_EVIDENCE": "Resultados conflitantes nos abstracts",
-            "INCONCLUSIVE": "Abstracts sem direção clara",
+            "COMPATIBLE_WITH_EVIDENCE": "Compatibilidade preliminar nos trechos analisados",
+            "INCOMPATIBLE_WITH_EVIDENCE": "Incompatibilidade preliminar nos trechos analisados",
+            "CONFLICTING_EVIDENCE": "Resultados conflitantes nos trechos analisados",
+            "INCONCLUSIVE": "Trechos sem direção clara",
             "INSUFFICIENT_EVIDENCE": "Evidência ainda não analisada",
         }
         conclusion = (
@@ -471,7 +587,7 @@ class RetrievalPreviewRunner:
             )
         elif assessments:
             summary = (
-                f"{len(assessments)} abstract(s) foram analisados: "
+                f"{len(assessments)} artigo(s) tiveram trechos analisados: "
                 f"{relation_counts['SUPPORTS']} compatível(is), "
                 f"{relation_counts['CONTRADICTS']} incompatível(is), "
                 f"{relation_counts['NEUTRAL']} neutro(s) e "
@@ -556,7 +672,7 @@ class RetrievalPreviewRunner:
                     "neutral": relation_counts["NEUTRAL"] / probability_denominator,
                 },
                 "rationale": (
-                    "Classificação preliminar baseada somente nos abstracts."
+                    "Classificação baseada nos trechos recuperados, priorizando texto completo."
                     if assessments
                     else "Interpretação indisponível na execução."
                 ),
@@ -629,13 +745,6 @@ def create_live_retrieval_app(*, project_root: Path | None = None):
         if os.getenv("GEMINI_API_KEY")
         else None
     )
-    runner = RetrievalPreviewRunner(
-        engine,
-        planner=GenericHealthQueryPlanner(translator),
-        abstract_client=pmc_client,
-        evidence_analyzer=evidence_analyzer,
-        related_client=pubmed_client,
-    )
     try:
         document_parser = LiteParseDocumentParser(
             max_pages=int(os.getenv("DOCUMENT_MAX_PAGES", "100")),
@@ -643,6 +752,19 @@ def create_live_retrieval_app(*, project_root: Path | None = None):
         )
     except DocumentParsingError:
         document_parser = None
+    open_access_client = (
+        OpenAccessContentClient(document_parser, timeout=timeout)
+        if document_parser is not None
+        else None
+    )
+    runner = RetrievalPreviewRunner(
+        engine,
+        planner=GenericHealthQueryPlanner(translator),
+        abstract_client=pmc_client,
+        evidence_analyzer=evidence_analyzer,
+        related_client=pubmed_client,
+        open_access_client=open_access_client,
+    )
     service = AnalysisJobService(
         runner,
         result_serializer=lambda result: result,
