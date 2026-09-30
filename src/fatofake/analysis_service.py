@@ -19,6 +19,7 @@ from .evidence_extraction import (
     extract_evidence_statements,
 )
 from .evidence_synthesis import CorpusSynthesis, synthesize_evidence
+from .federated_search import FederatedSearchEngine, FederatedSearchResult
 from .hybrid_retrieval import HybridConfig, HybridIndex
 from .input_validation import AnalysisInput, validate_analysis_input
 from .pmc import (
@@ -116,7 +117,7 @@ class ArticleAnalysisFailure:
 class MultiArticleAnalysis:
     analysis_input: AnalysisInput
     search_plan: SearchPlan
-    search_result: PubMedSearchResult
+    search_result: PubMedSearchResult | FederatedSearchResult
     articles: tuple[ArticleEvidenceBundle, ...]
     failures: tuple[ArticleAnalysisFailure, ...]
     synthesis: CorpusSynthesis
@@ -228,12 +229,22 @@ class MultiArticleAnalysisService:
         self,
         *,
         query_planner: QueryPlanner,
-        pubmed_client: PubMedClient,
         article_processor: ArticleProcessor,
+        pubmed_client: PubMedClient | None = None,
+        search_engine: FederatedSearchEngine | None = None,
         config: MultiArticleAnalysisConfig | None = None,
     ) -> None:
         self.query_planner = query_planner
+        if pubmed_client is None and search_engine is None:
+            raise RetrievalError(
+                "Informe pubmed_client ou search_engine para executar a busca."
+            )
+        if pubmed_client is not None and search_engine is not None:
+            raise RetrievalError(
+                "Informe somente pubmed_client ou search_engine, não ambos."
+            )
         self.pubmed_client = pubmed_client
+        self.search_engine = search_engine
         self.article_processor = article_processor
         self.config = config or MultiArticleAnalysisConfig()
 
@@ -244,11 +255,18 @@ class MultiArticleAnalysisService:
     ) -> MultiArticleAnalysis:
         analysis_input = validate_analysis_input(claim, article_reference)
         search_plan = prepare_search_plan(analysis_input, self.query_planner)
-        search_result = search_pubmed(
-            search_plan,
-            self.pubmed_client,
-            max_results_per_query=self.config.max_results_per_query,
-        )
+        if self.search_engine is not None:
+            search_result = self.search_engine.search(
+                search_plan,
+                max_results_per_query=self.config.max_results_per_query,
+            )
+        else:
+            assert self.pubmed_client is not None
+            search_result = search_pubmed(
+                search_plan,
+                self.pubmed_client,
+                max_results_per_query=self.config.max_results_per_query,
+            )
 
         articles: list[ArticleEvidenceBundle] = []
         failures: list[ArticleAnalysisFailure] = []
@@ -357,6 +375,18 @@ class MultiArticleAnalysisService:
                 "avaliação humana de risco de viés."
             ),
         ]
+        if isinstance(search_result, FederatedSearchResult):
+            if search_result.unresolved_works:
+                limitations.append(
+                    f"{len(search_result.unresolved_works)} trabalho(s) recuperado(s) "
+                    "fora do PubMed ainda não possuem PMID e, por isso, não puderam "
+                    "seguir para a recuperação de conteúdo no fluxo atual."
+                )
+            if search_result.failures:
+                limitations.append(
+                    f"{len(search_result.failures)} consulta(s) a fontes federadas "
+                    "falharam isoladamente; as demais fontes continuaram a busca."
+                )
         if failures:
             limitations.append(
                 f"{len(failures)} artigo(s) candidato(s) falharam durante o "

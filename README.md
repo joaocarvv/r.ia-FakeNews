@@ -2,7 +2,7 @@
 
 O fluxo principal definido para o MVP está documentado em [`docs/fluxo-mvp.md`](docs/fluxo-mvp.md).
 
-Jupyter Notebook executável para verificar afirmações pelo cruzamento de fontes reais. O pipeline analisa a claim, consulta o PubMed, normaliza e deduplica documentos, cria chunks, executa busca híbrida, classifica as evidências e gera uma síntese com as fontes utilizadas.
+Jupyter Notebook executável para verificar afirmações pelo cruzamento de fontes reais. O pipeline analisa a claim e agora suporta pesquisa federada em PubMed, OpenAlex e periódicos SciELO indexados pelo OpenAlex; em seguida, normaliza e deduplica documentos, cria chunks, executa busca híbrida, classifica as evidências e gera uma síntese com as fontes utilizadas.
 
 A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou falso. O resultado descreve o conjunto recuperado como `EVIDENCE_SUPPORTS`, `EVIDENCE_AGAINST`, `INCONCLUSIVE` ou `CONFLICTING_EVIDENCE`.
 
@@ -14,6 +14,7 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 - `notebooks/19_validacao_confiabilidade.ipynb`: benchmark inicial das regras de abstenção e exclusão de artigos retratados.
 - `notebooks/20_validacao_pesquisa_adversarial.ipynb`: validação controlada do pesquisador, crítico e árbitro determinístico com checagem de proveniência.
 - `notebooks/21_validacao_fontes_cientificas.ipynb`: auditoria ao vivo de acesso e papel das fontes científicas abertas, editoriais e manuais consideradas pelo grupo.
+- `notebooks/22_validacao_busca_federada.ipynb`: validação da normalização, deduplicação, proveniência e ranking federado entre PubMed, OpenAlex e SciELO via OpenAlex.
 - `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
 - `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
 - `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.
@@ -99,6 +100,7 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 | `EMBEDDING_MODEL` | Não | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Modelo local multilíngue usado na busca semântica. |
 | `NCBI_API_KEY` | Não | vazio | Aumenta o limite da API do NCBI. A POC funciona sem essa chave. |
 | `NCBI_EMAIL` | Recomendada | vazio | Identifica o responsável pelas chamadas ao NCBI. Use um e-mail de contato válido. |
+| `OPENALEX_API_KEY` | Recomendada | vazio | Autentica a busca no OpenAlex; obtenha uma chave gratuita para limites mais estáveis. |
 | `SPRINGER_META_API_KEY` | Não | vazio | Habilita a busca de metadados da Springer Nature na auditoria de fontes. |
 | `SPRINGER_OPENACCESS_API_KEY` | Não | vazio | Habilita a busca de conteúdo aberto da Springer Nature na auditoria de fontes. |
 | `ELSEVIER_API_KEY` | Não | vazio | Habilita a busca na API ScienceDirect da Elsevier na auditoria de fontes. |
@@ -118,6 +120,7 @@ GEMINI_API_KEY=cole_sua_chave_aqui
 LLM_MODEL=gemini-flash-lite-latest
 NCBI_API_KEY=
 NCBI_EMAIL=seu-email@exemplo.com
+OPENALEX_API_KEY=
 SPRINGER_META_API_KEY=
 SPRINGER_OPENACCESS_API_KEY=
 ELSEVIER_API_KEY=

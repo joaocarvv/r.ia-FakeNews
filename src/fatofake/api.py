@@ -259,23 +259,40 @@ def serialize_multi_article_analysis(
 ) -> dict[str, Any]:
     """Converte o resultado científico em um contrato JSON explícito."""
 
+    search_result = analysis.search_result
+    search_payload = {
+        "queries": list(analysis.search_plan.queries),
+        "query_results": [
+            {
+                "query": item.query,
+                "total_matches": item.total_matches,
+                **({"source": item.source} if hasattr(item, "source") else {}),
+                **(
+                    {"retrieved_count": item.retrieved_count}
+                    if hasattr(item, "retrieved_count")
+                    else {}
+                ),
+            }
+            for item in search_result.query_results
+        ],
+        "candidate_count": len(search_result.publications),
+    }
+    if hasattr(search_result, "works"):
+        search_payload.update(
+            {
+                "unique_work_count": len(search_result.works),
+                "unresolved_work_count": len(search_result.unresolved_works),
+                "source_failure_count": len(search_result.failures),
+            }
+        )
+
     return {
         "input": {
             "claim": analysis.analysis_input.claim,
             "article_reference": analysis.analysis_input.article_reference,
             "reference_type": analysis.analysis_input.reference_type,
         },
-        "search": {
-            "queries": list(analysis.search_plan.queries),
-            "query_results": [
-                {
-                    "query": item.query,
-                    "total_matches": item.total_matches,
-                }
-                for item in analysis.search_result.query_results
-            ],
-            "candidate_count": len(analysis.search_result.publications),
-        },
+        "search": search_payload,
         "articles": [
             {
                 "pmid": item.publication.pmid,

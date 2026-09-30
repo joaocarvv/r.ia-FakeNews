@@ -93,7 +93,13 @@ Essa etapa valida regras de software com agentes controlados; não representa va
 
 Nature não é contada como índice independente, e Google Acadêmico permanece fora da automação por não possuir uma API pública suportada no projeto. A disponibilidade de uma fonte não comprova cobertura, relevância nem qualidade científica.
 
-**Próxima etapa:** implementar a busca federada em PubMed, OpenAlex e SciELO, normalizando e deduplicando os resultados por DOI, PMID e metadados antes do ranking. Depois, integrar adaptadores reais e versionados para os agentes e construir o conjunto prata.
+**Etapa concluída:** implementar a busca federada em PubMed, OpenAlex e periódicos da lista SciELO via OpenAlex, normalizando os resultados, deduplicando por DOI, PMID ou título/ano/primeiro autor e combinando posições por Reciprocal Rank Fusion. Falhas isoladas não interrompem as demais fontes, e trabalhos sem PMID permanecem auditáveis sem serem enviados incorretamente ao PMC.
+
+**Comprovação:** [`notebooks/22_validacao_busca_federada.ipynb`](../notebooks/22_validacao_busca_federada.ipynb).
+
+O uso de SciELO via OpenAlex é explicitado na proveniência. O ArticleMeta permanece útil para catálogo e metadados, mas não é apresentado como mecanismo de busca temática. A validação controlada comprova as regras de software; ela não mede recall clínico nem qualidade dos resultados reais.
+
+**Próxima etapa:** construir um conjunto prata de consultas e artigos relevantes para medir `Recall@K`, `Precision@K`, MRR, ganho de cobertura e duplicação residual. Depois, priorizar adaptadores de conteúdo por DOI para trabalhos sem PMID.
 
 ## Fluxo
 
