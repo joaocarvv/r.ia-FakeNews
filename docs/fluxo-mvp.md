@@ -99,16 +99,22 @@ Nature não é contada como índice independente, e Google Acadêmico permanece 
 
 O uso de SciELO via OpenAlex é explicitado na proveniência. O ArticleMeta permanece útil para catálogo e metadados, mas não é apresentado como mecanismo de busca temática. A validação controlada comprova as regras de software; ela não mede recall clínico nem qualidade dos resultados reais.
 
-**Próxima etapa:** construir um conjunto prata de consultas e artigos relevantes para medir `Recall@K`, `Precision@K`, MRR, ganho de cobertura e duplicação residual. Depois, priorizar adaptadores de conteúdo por DOI para trabalhos sem PMID.
+**Etapa concluída:** processar PDFs localmente com LiteParse antes de enviar o texto ao Gemini, preservando o nome do parser e a contagem de páginas. A ingestão rejeita documentos sem texto suficiente em vez de inferir conteúdo ausente. Chamadas Gemini passam a repetir automaticamente erros temporários `429`, `5xx`, timeout e falhas de rede.
+
+**Comprovação:** [`notebooks/23_validacao_ingestao_liteparse.ipynb`](../notebooks/23_validacao_ingestao_liteparse.ipynb).
+
+Essa etapa cria a base de ingestão para uma experiência semelhante ao NotebookLM, mas ainda não implementa uma biblioteca persistente de múltiplos documentos nem perguntas conversacionais sobre o acervo.
+
+**Próxima etapa:** criar a biblioteca de fontes da análise, fragmentar cada documento com proveniência de página e responder perguntas apenas com citações dos trechos recuperados. Em paralelo, construir um conjunto prata para medir `Recall@K`, `Precision@K`, MRR, cobertura e duplicação residual.
 
 ## Fluxo
 
-1. O usuário envia a alegação e, opcionalmente, um artigo.
-2. O sistema identifica e normaliza a alegação.
-3. O sistema busca artigos científicos relacionados.
+1. O usuário envia um link/DOI, PDF ou imagem de um artigo.
+2. O sistema recupera ou interpreta o documento e extrai a alegação principal.
+3. O sistema busca artigos científicos independentes relacionados.
 4. O sistema seleciona e analisa as evidências encontradas.
-5. O sistema compara as evidências com a alegação.
-6. O sistema gera um relatório para o usuário.
+5. O sistema compara as evidências com a alegação extraída.
+6. O sistema gera um relatório para o usuário, com alertas e fontes conferíveis.
 
 ## Saída
 
@@ -122,9 +128,11 @@ O relatório deve apresentar:
 ## Resumo visual
 
 ```text
-Alegação + artigo opcional
+Link, PDF ou imagem do artigo
             ↓
-  Busca de evidências
+Leitura + alegação extraída
+            ↓
+ Busca de evidências independentes
             ↓
  Análise e comparação
             ↓

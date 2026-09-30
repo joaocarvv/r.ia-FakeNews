@@ -98,6 +98,7 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 | `GEMINI_API_KEY` | Recomendada | vazio | Autentica a análise, classificação e síntese com Gemini. Sem ela, o notebook usa o fallback local. |
 | `LLM_MODEL` | Não | `gemini-flash-lite-latest` | Modelo Gemini usado pelo endpoint REST. Troque somente por um modelo disponível na sua conta. |
 | `EMBEDDING_MODEL` | Não | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Modelo local multilíngue usado na busca semântica. |
+| `TRANSLATION_MODEL` | Não | `Helsinki-NLP/opus-mt-ROMANCE-en` | Traduz localmente a alegação em português para ampliar a busca científica em inglês; não produz o veredito. |
 | `NCBI_API_KEY` | Não | vazio | Aumenta o limite da API do NCBI. A POC funciona sem essa chave. |
 | `NCBI_EMAIL` | Recomendada | vazio | Identifica o responsável pelas chamadas ao NCBI. Use um e-mail de contato válido. |
 | `OPENALEX_API_KEY` | Recomendada | vazio | Autentica a busca no OpenAlex; obtenha uma chave gratuita para limites mais estáveis. |
@@ -110,12 +111,17 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 | `TOP_K` | Não | `6` | Número máximo de trechos enviados à classificação. |
 | `HTTP_TIMEOUT` | Não | `20` | Timeout, em segundos, para APIs e páginas externas. |
 | `LLM_TIMEOUT` | Não | `120` | Timeout, em segundos, para uma chamada Gemini. |
+| `LLM_MAX_ATTEMPTS` | Não | `3` | Tentativas para erros temporários `429`, `5xx` e falhas de rede da Gemini. |
+| `LLM_RETRY_BACKOFF` | Não | `1` | Espera exponencial inicial, em segundos, entre tentativas da Gemini. |
+| `DOCUMENT_MAX_PAGES` | Não | `100` | Limite de páginas processadas localmente pelo LiteParse. |
+| `DOCUMENT_PARSE_TIMEOUT` | Não | `45` | Limite, em segundos, para interpretar um documento local. |
 | `WEB_URLS` | Não | vazio | URLs públicas adicionais, separadas por vírgula. Exige Crawl4AI. |
 
 Exemplo completo:
 
 ```dotenv
 EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+TRANSLATION_MODEL=Helsinki-NLP/opus-mt-ROMANCE-en
 GEMINI_API_KEY=cole_sua_chave_aqui
 LLM_MODEL=gemini-flash-lite-latest
 NCBI_API_KEY=
@@ -206,6 +212,21 @@ plot_evidence_map(resultado)
 
 O retorno contém a claim, status, resumo, evidências, URLs, agregação, métricas, erros observados e os modelos usados.
 
+### Teste web com artigos
+
+Para abrir o protótipo que aceita link/DOI de artigo, PDF ou imagem:
+
+```bash
+.venv/bin/python run_acceptance_app.py
+```
+
+No Windows, use `.venv/Scripts/python.exe`. Depois, acesse
+`http://127.0.0.1:5000`. PDFs são convertidos localmente pelo LiteParse antes da
+extração das alegações; links do PubMed são resolvidos diretamente pelas APIs do
+NCBI. Com `GEMINI_API_KEY` configurada, a aplicação extrai a alegação principal,
+busca evidências independentes e valida se os trechos citados existem nos abstracts
+originais. A análise mede compatibilidade, nunca declara o artigo verdadeiro ou falso.
+
 ## 9. Solução de problemas
 
 ### `401`, `403` ou chave inválida
@@ -220,7 +241,16 @@ O catálogo da Gemini API muda ao longo do tempo. Atualize `LLM_MODEL` no `.env`
 
 ### `429` ou `503` na Gemini API
 
-A cota gratuita ou a capacidade temporária pode ter sido atingida. Aguarde e execute novamente. O notebook registra a falha e tenta o classificador local quando possível.
+A cota ou a capacidade temporária pode ter sido atingida. A aplicação repete a
+chamada até `LLM_MAX_ATTEMPTS` vezes, com espera progressiva. Se todas falharem,
+ela informa indisponibilidade temporária sem confundir essa falha com ausência de
+alegação no artigo.
+
+### PDF sem texto suficiente
+
+O LiteParse trabalha localmente e usa OCR, mas documentos digitalizados, tabelas
+densas, fórmulas e gráficos ainda podem exigir um parser mais avançado. A aplicação
+interrompe a análise quando não há texto suficiente, em vez de fabricar conteúdo.
 
 ### Kernel ou imports não encontrados
 

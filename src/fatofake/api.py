@@ -13,7 +13,15 @@ from uuid import uuid4
 from flask import Flask, jsonify, request, url_for
 
 from .analysis_service import AnalysisServiceError, MultiArticleAnalysis
+from .article_ingestion import (
+    ArticleIngestionError,
+    ArticleSubmission,
+    validate_article_submission,
+)
+from .gemini_evidence import GeminiAnalysisError
 from .input_validation import AnalysisInput, InputValidationError, validate_analysis_input
+from .web_ui import register_web_ui
+from .verification_cards import build_analysis_cards
 
 
 class AnalysisRunner(Protocol):
@@ -24,6 +32,10 @@ class AnalysisRunner(Protocol):
         claim: str,
         article_reference: str | None = None,
     ) -> MultiArticleAnalysis: ...
+
+
+class ArticleAnalysisRunner(Protocol):
+    def analyze_article(self, submission: ArticleSubmission) -> Mapping[str, Any]: ...
 
 
 class AnalysisJobStatus(str, Enum):
@@ -146,6 +158,7 @@ class AnalysisJobService:
         store: InMemoryAnalysisJobStore | None = None,
         executor: Executor | None = None,
         result_serializer: ResultSerializer | None = None,
+        article_runner: ArticleAnalysisRunner | None = None,
         max_workers: int = 2,
     ) -> None:
         if max_workers < 1:
@@ -158,6 +171,7 @@ class AnalysisJobService:
             thread_name_prefix="fatofake-analysis",
         )
         self.result_serializer = result_serializer or serialize_multi_article_analysis
+        self.article_runner = article_runner
 
     def submit(
         self,
@@ -212,6 +226,64 @@ class AnalysisJobService:
             )
             return
 
+        self.store.transition(
+            analysis_id,
+            status=AnalysisJobStatus.SUCCEEDED,
+            progress=100,
+            result=result,
+        )
+
+    def submit_article(self, submission: ArticleSubmission) -> AnalysisJob:
+        if self.article_runner is None:
+            raise AnalysisServiceError("A análise de artigos não está configurada.")
+        placeholder = AnalysisInput(
+            claim="Alegação a extrair do artigo enviado",
+            article_reference=submission.reference,
+            reference_type=submission.reference_type or submission.mime_type,
+        )
+        job = self.store.create(placeholder)
+        try:
+            self.executor.submit(self._run_article, job.analysis_id, submission)
+        except Exception:
+            self.store.transition(
+                job.analysis_id,
+                status=AnalysisJobStatus.FAILED,
+                progress=100,
+                error={
+                    "code": "SCHEDULING_FAILED",
+                    "message": "Não foi possível agendar a análise do artigo.",
+                },
+            )
+        return job
+
+    def _run_article(self, analysis_id: str, submission: ArticleSubmission) -> None:
+        self.store.transition(
+            analysis_id,
+            status=AnalysisJobStatus.RUNNING,
+            progress=10,
+        )
+        try:
+            assert self.article_runner is not None
+            result = self.article_runner.analyze_article(submission)
+        except (AnalysisServiceError, ArticleIngestionError, GeminiAnalysisError) as error:
+            self.store.transition(
+                analysis_id,
+                status=AnalysisJobStatus.FAILED,
+                progress=100,
+                error={"code": "ARTICLE_ANALYSIS_FAILED", "message": str(error)},
+            )
+            return
+        except Exception:
+            self.store.transition(
+                analysis_id,
+                status=AnalysisJobStatus.FAILED,
+                progress=100,
+                error={
+                    "code": "INTERNAL_ANALYSIS_ERROR",
+                    "message": "A análise do artigo falhou durante o processamento.",
+                },
+            )
+            return
         self.store.transition(
             analysis_id,
             status=AnalysisJobStatus.SUCCEEDED,
@@ -412,6 +484,7 @@ def serialize_multi_article_analysis(
                 for source in analysis.report.sources
             ],
         },
+        "verification": build_analysis_cards(analysis),
     }
 
 
@@ -436,11 +509,16 @@ def _error_response(code: str, message: str, status_code: int):
     return jsonify({"error": {"code": code, "message": message}}), status_code
 
 
-def create_app(job_service: AnalysisJobService) -> Flask:
+def create_app(
+    job_service: AnalysisJobService,
+    *,
+    mode_label: str = "PROTÓTIPO LOCAL — resultados dependem do backend configurado",
+) -> Flask:
     """Cria a aplicação sem inicializar modelos ou serviços externos no import."""
 
     app = Flask(__name__)
-    app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
+    app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024
+    register_web_ui(app, mode_label=mode_label)
 
     @app.get("/api/v1/health")
     def health():
@@ -476,6 +554,45 @@ def create_app(job_service: AnalysisJobService) -> Flask:
             job = job_service.submit(payload.get("claim"), article_reference)
         except InputValidationError as error:
             return _error_response("INVALID_INPUT", str(error), 422)
+
+        status_url = url_for("get_analysis", analysis_id=job.analysis_id)
+        response = jsonify(
+            {
+                "analysis_id": job.analysis_id,
+                "status": job.status.value,
+                "progress": job.progress,
+                "status_url": status_url,
+            }
+        )
+        response.status_code = 202
+        response.headers["Location"] = status_url
+        return response
+
+    @app.post("/api/v1/article-analyses")
+    def create_article_analysis():
+        if not request.is_json:
+            return _error_response(
+                "UNSUPPORTED_MEDIA_TYPE",
+                "Envie o corpo como application/json.",
+                415,
+            )
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return _error_response("INVALID_JSON", "O JSON enviado é inválido.", 400)
+        unknown_fields = set(payload) - {"article_reference", "article_file"}
+        if unknown_fields:
+            return _error_response(
+                "UNKNOWN_FIELDS",
+                "Campos não reconhecidos: " + ", ".join(sorted(unknown_fields)) + ".",
+                400,
+            )
+        try:
+            submission = validate_article_submission(payload)
+            job = job_service.submit_article(submission)
+        except InputValidationError as error:
+            return _error_response("INVALID_INPUT", str(error), 422)
+        except AnalysisServiceError as error:
+            return _error_response("ARTICLE_ANALYSIS_UNAVAILABLE", str(error), 503)
 
         status_url = url_for("get_analysis", analysis_id=job.analysis_id)
         response = jsonify(
