@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+from difflib import SequenceMatcher
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
@@ -41,6 +43,16 @@ class ArticleSubmission:
 
 
 @dataclass(frozen=True)
+class ExtractedClaim:
+    claim_id: str
+    text: str
+    search_query: str
+    quote: str | None = None
+    section: str | None = None
+    page: int | None = None
+
+
+@dataclass(frozen=True)
 class ExtractedArticle:
     title: str | None
     doi: str | None
@@ -49,6 +61,7 @@ class ExtractedArticle:
     additional_claims: tuple[str, ...]
     absolute_language: tuple[str, ...]
     extraction_model: str
+    claims: tuple[ExtractedClaim, ...] = ()
     primary_claim_quote: str | None = None
     research_context: str = "UNKNOWN"
     primary_claim_section: str | None = None
@@ -211,6 +224,15 @@ class GeminiArticleExtractor:
 
     @staticmethod
     def _schema() -> dict[str, Any]:
+        claim_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "text": {"type": "STRING"},
+                "quote": {"type": "STRING"},
+                "search_query": {"type": "STRING"},
+            },
+            "required": ["text", "quote", "search_query"],
+        }
         return {
             "type": "OBJECT",
             "properties": {
@@ -231,6 +253,10 @@ class GeminiArticleExtractor:
                 },
                 "additional_claims": {"type": "ARRAY", "items": {"type": "STRING"}},
                 "absolute_language": {"type": "ARRAY", "items": {"type": "STRING"}},
+                "claims": {
+                    "type": "ARRAY",
+                    "items": claim_schema,
+                },
             },
             "required": [
                 "title",
@@ -241,8 +267,55 @@ class GeminiArticleExtractor:
                 "research_context",
                 "additional_claims",
                 "absolute_language",
+                "claims",
             ],
         }
+
+    @staticmethod
+    def _claim_key(value: str) -> str:
+        decomposed = unicodedata.normalize("NFKD", value.casefold())
+        plain = "".join(char for char in decomposed if not unicodedata.combining(char))
+        return " ".join(re.findall(r"[a-z0-9]+", plain))
+
+    @classmethod
+    def _is_duplicate(cls, candidate: str, accepted: list[str]) -> bool:
+        candidate_key = cls._claim_key(candidate)
+        if not candidate_key:
+            return True
+        candidate_tokens = set(candidate_key.split())
+        for previous in accepted:
+            previous_key = cls._claim_key(previous)
+            if candidate_key == previous_key:
+                return True
+            previous_tokens = set(previous_key.split())
+            union = candidate_tokens | previous_tokens
+            overlap = len(candidate_tokens & previous_tokens) / len(union) if union else 1.0
+            similarity = SequenceMatcher(None, candidate_key, previous_key).ratio()
+            if overlap >= 0.88 or similarity >= 0.93:
+                return True
+        return False
+
+    @staticmethod
+    def _locate_quote(
+        resolved: ResolvedArticleDocument | None,
+        raw_quote: str,
+    ) -> tuple[str | None, str | None, int | None]:
+        quote = " ".join(raw_quote.split())[:1000]
+        if not quote or resolved is None:
+            return quote or None, None, None
+        if quote not in " ".join(resolved.text.split()):
+            return None, None, None
+        page_number: int | None = None
+        section_name: str | None = None
+        for page in resolved.pages:
+            if quote in " ".join(page.text.split()):
+                page_number = page.page_number
+                break
+        for section, section_text in resolved.sections:
+            if quote in " ".join(section_text.split()):
+                section_name = section
+                break
+        return quote, section_name, page_number
 
     def extract(
         self,
@@ -250,17 +323,19 @@ class GeminiArticleExtractor:
         resolved: ResolvedArticleDocument | None = None,
     ) -> ExtractedArticle:
         prompt = (
-            "Leia o artigo fornecido e extraia sua principal alegação científica "
-            "verificável. Não julgue se ela é verdadeira. A alegação deve mencionar, "
-            "quando disponíveis, população, intervenção ou exposição, comparação e "
-            "desfecho. Ignore publicidade, opinião e frases sem resultado científico. "
-            "Liste no máximo três alegações adicionais. Em absolute_language, copie "
+            "Leia o artigo fornecido e extraia de uma a quatro alegações científicas "
+            "atômicas e verificáveis, em ordem de importância. Não julgue se são verdadeiras. "
+            "Separe relações diferentes: cada alegação deve expressar apenas uma relação "
+            "entre exposição/intervenção e desfecho, mecanismo ou fenômeno. Não junte numa "
+            "mesma frase resultados que exigiriam buscas diferentes. Para cada item de claims, "
+            "copie em quote o menor trecho literal que o sustenta e crie uma search_query curta "
+            "em inglês, sem percentuais nem a conclusão do artigo. Evite alegações duplicadas "
+            "ou paráfrases. Preencha também os campos legados primary_claim, "
+            "primary_claim_quote e search_query com o primeiro item de claims; coloque os demais "
+            "textos em additional_claims. Ignore publicidade, opinião e frases sem resultado "
+            "científico. Em absolute_language, copie "
             "expressões absolutas realmente presentes no documento. Use strings vazias "
-            "quando título ou DOI não estiverem disponíveis. Em search_query, produza "
-            "uma consulta curta em inglês com apenas população, intervenção/exposição "
-            "e desfecho, sem dose, percentuais ou a conclusão do artigo."
-            " Em primary_claim_quote, copie literalmente o menor trecho do documento "
-            "que sustenta a alegação extraída. Classifique research_context conforme "
+            "quando título ou DOI não estiverem disponíveis. Classifique research_context conforme "
             "o desenho do artigo; BASIC_SCIENCE não deve ser tratado como ensaio clínico."
         )
         parts: list[dict[str, Any]] = [{"text": prompt}]
@@ -308,11 +383,57 @@ class GeminiArticleExtractor:
             )
         if len(search_query) < 3:
             raise GeminiAnalysisError("Não foi possível preparar a busca científica.")
-        additional = tuple(
-            " ".join(str(item).split())
-            for item in (decoded.get("additional_claims") or [])[:3]
-            if str(item).strip()
-        )
+        raw_claims = decoded.get("claims") or [
+            {
+                "text": primary_claim,
+                "quote": decoded.get("primary_claim_quote") or "",
+                "search_query": search_query,
+            },
+            *(
+                {
+                    "text": str(item),
+                    "quote": "",
+                    "search_query": str(item),
+                }
+                for item in (decoded.get("additional_claims") or [])[:3]
+            ),
+        ]
+        claims: list[ExtractedClaim] = []
+        accepted_texts: list[str] = []
+        for raw_claim in raw_claims[:8]:
+            if not isinstance(raw_claim, Mapping):
+                continue
+            claim_text = " ".join(str(raw_claim.get("text") or "").split())
+            claim_query = " ".join(str(raw_claim.get("search_query") or "").split())
+            if len(claim_text) < 8 or len(claim_query) < 3:
+                continue
+            if self._is_duplicate(claim_text, accepted_texts):
+                continue
+            quote, section, page = self._locate_quote(
+                resolved,
+                str(raw_claim.get("quote") or ""),
+            )
+            accepted_texts.append(claim_text)
+            claims.append(
+                ExtractedClaim(
+                    claim_id=f"claim-{len(claims) + 1:02d}",
+                    text=claim_text,
+                    search_query=claim_query,
+                    quote=quote,
+                    section=section,
+                    page=page,
+                )
+            )
+            if len(claims) == 4:
+                break
+        if not claims:
+            raise GeminiAnalysisError(
+                "O documento não apresentou uma alegação científica verificável."
+            )
+        primary = claims[0]
+        primary_claim = primary.text
+        search_query = primary.search_query
+        additional = tuple(item.text for item in claims[1:])
         absolute = tuple(
             " ".join(str(item).split())
             for item in (decoded.get("absolute_language") or [])[:10]
@@ -326,23 +447,6 @@ class GeminiArticleExtractor:
         )
         if doi and not DOI_PATTERN.fullmatch(doi):
             doi = None
-        quote = " ".join(str(decoded.get("primary_claim_quote") or "").split())[:1000]
-        quote_section: str | None = None
-        quote_page: int | None = None
-        if resolved is not None and quote:
-            normalized_source = " ".join(resolved.text.split())
-            if quote not in normalized_source:
-                quote = ""
-            else:
-                for page in resolved.pages:
-                    if quote in " ".join(page.text.split()):
-                        quote_page = page.page_number
-                        quote_section = "Página do PDF"
-                        break
-                for section, section_text in resolved.sections:
-                    if quote in " ".join(section_text.split()):
-                        quote_section = section
-                        break
         research_context = str(decoded.get("research_context") or "UNKNOWN").upper()
         if research_context not in {
             "BASIC_SCIENCE",
@@ -360,10 +464,11 @@ class GeminiArticleExtractor:
             additional_claims=additional,
             absolute_language=absolute,
             extraction_model=self.gateway.model_name,
-            primary_claim_quote=quote or None,
+            claims=tuple(claims),
+            primary_claim_quote=primary.quote,
             research_context=research_context,
-            primary_claim_section=quote_section,
-            primary_claim_page=quote_page,
+            primary_claim_section=primary.section,
+            primary_claim_page=primary.page,
         )
 
 
@@ -394,64 +499,102 @@ class ArticleFirstAnalysisRunner:
         self.reference_resolver = reference_resolver
         self.document_parser = document_parser
 
-    def analyze_article(self, submission: ArticleSubmission) -> Mapping[str, Any]:
-        resolved = (
-            self.reference_resolver.resolve(submission)
-            if self.reference_resolver is not None
-            else None
-        )
-        if (
-            resolved is None
-            and submission.mime_type == "application/pdf"
-            and submission.content is not None
-            and self.document_parser is not None
-        ):
-            try:
-                parsed = self.document_parser.parse_pdf(submission.content)
-            except DocumentParsingError as error:
-                raise ArticleIngestionError(str(error)) from error
-            resolved = ResolvedArticleDocument(
-                title=None,
-                doi=None,
-                text=parsed.text,
-                parser_name=parsed.parser_name,
-                page_count=parsed.page_count,
-                pages=tuple(getattr(parsed, "pages", ()) or ()),
-                content_scope="LOCAL_PDF_FULL_TEXT",
-            )
-        extracted = self.extractor.extract(submission, resolved)
-        excluded = (extracted.doi,) if extracted.doi else ()
-        result = dict(
-            self.evidence_runner.analyze(
-                extracted.primary_claim,
-                None,
-                excluded_dois=excluded,
-                query_override=extracted.search_query,
-                related_seed_pmids=(resolved.pmid,) if resolved and resolved.pmid else (),
-            )
-        )
-        result["input"] = {
-            "type": "article",
-            "source": submission.label,
-            "source_type": submission.reference_type or submission.mime_type,
+    @staticmethod
+    def _claim_payload(claim: ExtractedClaim) -> dict[str, Any]:
+        return {
+            "claim_id": claim.claim_id,
+            "text": claim.text,
+            "search_query": claim.search_query,
+            "quote": claim.quote,
+            "section": claim.section,
+            "page": claim.page,
         }
-        result["submitted_article"] = {
+
+    @classmethod
+    def _submitted_article_payload(
+        cls,
+        *,
+        extracted: ExtractedArticle,
+        active_claim: ExtractedClaim,
+        submission: ArticleSubmission,
+        resolved: ResolvedArticleDocument | None,
+        include_all_claims: bool,
+    ) -> dict[str, Any]:
+        payload = {
             "title": extracted.title,
             "doi": extracted.doi,
-            "primary_claim": extracted.primary_claim,
-            "search_query": extracted.search_query,
-            "additional_claims": list(extracted.additional_claims),
+            "primary_claim": active_claim.text,
+            "active_claim_id": active_claim.claim_id,
+            "search_query": active_claim.search_query,
+            "additional_claims": [
+                claim.text for claim in extracted.claims if claim != active_claim
+            ],
             "absolute_language": list(extracted.absolute_language),
             "extraction_model": extracted.extraction_model,
-            "primary_claim_quote": extracted.primary_claim_quote,
-            "primary_claim_section": extracted.primary_claim_section,
-            "primary_claim_page": extracted.primary_claim_page,
+            "primary_claim_quote": active_claim.quote,
+            "primary_claim_section": active_claim.section,
+            "primary_claim_page": active_claim.page,
             "research_context": extracted.research_context,
             "excluded_from_independent_evidence": bool(extracted.doi),
             "document_parser": resolved.parser_name if resolved else "gemini-multimodal",
             "page_count": resolved.page_count if resolved else None,
             "content_scope": resolved.content_scope if resolved else "GEMINI_URL_CONTEXT",
+            "source": submission.label,
         }
+        if include_all_claims:
+            payload["claims"] = [cls._claim_payload(claim) for claim in extracted.claims]
+        return payload
+
+    @staticmethod
+    def _add_article_assessment(result: dict[str, Any]) -> None:
+        synthesis = result.get("synthesis") or {}
+        direction = synthesis.get("direction", "NEUTRAL")
+        assessment_by_direction = {
+            "SUPPORTS": ("COMPATIBLE", "Compatível com os trechos independentes analisados"),
+            "CONTRADICTS": (
+                "POTENTIAL_TENSION",
+                "Possível incompatibilidade com evidência independente",
+            ),
+            "MIXED": ("MIXED", "Evidências independentes divergentes"),
+            "NEUTRAL": (
+                "CONTEXT_ONLY",
+                "Contexto relacionado encontrado, sem confirmação direta",
+            ),
+        }
+        status, label = assessment_by_direction.get(
+            direction, assessment_by_direction["NEUTRAL"]
+        )
+        result["article_assessment"] = {
+            "status": status,
+            "label": label,
+            "explanation": (
+                "Este rótulo expressa compatibilidade com os trechos recuperados, "
+                "não determina que o artigo seja verdadeiro ou falso."
+            ),
+        }
+
+    def _enrich_claim_result(
+        self,
+        *,
+        result: dict[str, Any],
+        extracted: ExtractedArticle,
+        active_claim: ExtractedClaim,
+        submission: ArticleSubmission,
+        resolved: ResolvedArticleDocument | None,
+    ) -> dict[str, Any]:
+        result["input"] = {
+            "type": "article_claim",
+            "source": submission.label,
+            "source_type": submission.reference_type or submission.mime_type,
+            "claim_id": active_claim.claim_id,
+        }
+        result["submitted_article"] = self._submitted_article_payload(
+            extracted=extracted,
+            active_claim=active_claim,
+            submission=submission,
+            resolved=resolved,
+            include_all_claims=False,
+        )
         verification = dict(result.get("verification") or {})
         verification["confidence_index"] = build_verification_confidence(
             articles=tuple(result.get("articles") or ()),
@@ -484,7 +627,9 @@ class ArticleFirstAnalysisRunner:
                     "O artigo foi identificado, mas o status de revisão por pares "
                     "ainda precisa ser confirmado por metadados editoriais."
                 ),
-                "source_url": submission.reference if submission.reference_type == "url" else None,
+                "source_url": (
+                    submission.reference if submission.reference_type == "url" else None
+                ),
             }
         )
         if extracted.absolute_language:
@@ -495,38 +640,102 @@ class ArticleFirstAnalysisRunner:
                     "severity": "WARNING",
                     "title": "Linguagem absoluta no artigo enviado",
                     "detail": "; ".join(extracted.absolute_language),
-                    "source_url": submission.reference if submission.reference_type == "url" else None,
+                    "source_url": (
+                        submission.reference if submission.reference_type == "url" else None
+                    ),
                 },
             )
         verification["alerts"] = alerts
         result["verification"] = verification
-        synthesis = result.get("synthesis") or {}
-        direction = synthesis.get("direction", "NEUTRAL")
-        assessment_by_direction = {
-            "SUPPORTS": ("COMPATIBLE", "Compatível com os trechos independentes analisados"),
-            "CONTRADICTS": ("POTENTIAL_TENSION", "Possível incompatibilidade com evidência independente"),
-            "MIXED": ("MIXED", "Evidências independentes divergentes"),
-            "NEUTRAL": (
-                "CONTEXT_ONLY",
-                "Contexto relacionado encontrado, sem confirmação direta",
-            ),
-        }
-        status, label = assessment_by_direction.get(
-            direction, assessment_by_direction["NEUTRAL"]
-        )
-        result["article_assessment"] = {
-            "status": status,
-            "label": label,
-            "explanation": (
-                "Este rótulo expressa compatibilidade com os trechos recuperados, "
-                "não determina que o artigo seja verdadeiro ou falso."
-            ),
-        }
+        self._add_article_assessment(result)
         if result.get("report", {}).get("conclusion") == "INSUFFICIENT_EVIDENCE":
-            result["report"]["headline"] = "Artigo processado; comparação externa limitada"
+            result["report"]["headline"] = "Alegação processada; comparação externa limitada"
             result["report"]["summary"] = (
-                "A alegação principal foi extraída, mas não houve trechos independentes "
+                "A alegação foi extraída, mas não houve trechos independentes "
                 "suficientes para medir compatibilidade. Isso não indica informação falsa."
             )
+        result["user_summary"] = build_user_summary(result)
+        return result
+
+    def analyze_article(self, submission: ArticleSubmission) -> Mapping[str, Any]:
+        resolved = (
+            self.reference_resolver.resolve(submission)
+            if self.reference_resolver is not None
+            else None
+        )
+        if (
+            resolved is None
+            and submission.mime_type == "application/pdf"
+            and submission.content is not None
+            and self.document_parser is not None
+        ):
+            try:
+                parsed = self.document_parser.parse_pdf(submission.content)
+            except DocumentParsingError as error:
+                raise ArticleIngestionError(str(error)) from error
+            resolved = ResolvedArticleDocument(
+                title=None,
+                doi=None,
+                text=parsed.text,
+                parser_name=parsed.parser_name,
+                page_count=parsed.page_count,
+                pages=tuple(getattr(parsed, "pages", ()) or ()),
+                content_scope="LOCAL_PDF_FULL_TEXT",
+            )
+        extracted = self.extractor.extract(submission, resolved)
+        excluded = (extracted.doi,) if extracted.doi else ()
+        claims = extracted.claims or (
+            ExtractedClaim(
+                claim_id="claim-01",
+                text=extracted.primary_claim,
+                search_query=extracted.search_query,
+                quote=extracted.primary_claim_quote,
+                section=extracted.primary_claim_section,
+                page=extracted.primary_claim_page,
+            ),
+        )
+        claim_analyses: list[dict[str, Any]] = []
+        for claim in claims:
+            claim_result = dict(
+                self.evidence_runner.analyze(
+                    claim.text,
+                    None,
+                    excluded_dois=excluded,
+                    query_override=claim.search_query,
+                    related_seed_pmids=(
+                        (resolved.pmid,) if resolved and resolved.pmid else ()
+                    ),
+                )
+            )
+            claim_result = self._enrich_claim_result(
+                result=claim_result,
+                extracted=extracted,
+                active_claim=claim,
+                submission=submission,
+                resolved=resolved,
+            )
+            claim_analyses.append(
+                {
+                    "claim_id": claim.claim_id,
+                    "claim": self._claim_payload(claim),
+                    "status": "SUCCEEDED",
+                    "result": claim_result,
+                }
+            )
+
+        result = dict(claim_analyses[0]["result"])
+        result["input"] = {
+            "type": "article",
+            "source": submission.label,
+            "source_type": submission.reference_type or submission.mime_type,
+        }
+        result["submitted_article"] = self._submitted_article_payload(
+            extracted=extracted,
+            active_claim=claims[0],
+            submission=submission,
+            resolved=resolved,
+            include_all_claims=True,
+        )
+        result["claim_analyses"] = claim_analyses
         result["user_summary"] = build_user_summary(result)
         return result

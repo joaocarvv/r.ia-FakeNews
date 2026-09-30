@@ -119,7 +119,11 @@ Resultados neutros são apresentados como contexto relacionado, não como confir
 
 **Comprovação:** [`notebooks/26_validacao_saida_coerente.ipynb`](../notebooks/26_validacao_saida_coerente.ipynb).
 
-**Próxima etapa:** construir um conjunto prata para medir `Recall@K`, `Precision@K`, MRR, cobertura de texto completo e precisão da localização de seção/página em PDFs reais.
+**Etapa concluída:** extrair até quatro alegações atômicas do artigo, remover duplicatas deterministicamente, preservar o trecho, a seção e a página de origem e executar uma busca e uma análise independentes para cada alegação. A interface permite alternar entre os resultados sem misturar artigos, contagens ou conclusões de alegações diferentes.
+
+**Comprovação:** [`notebooks/27_validacao_multiplas_alegacoes.ipynb`](../notebooks/27_validacao_multiplas_alegacoes.ipynb).
+
+**Próxima etapa:** substituir a porcentagem única por indicadores separados de cobertura da busca, compatibilidade das evidências e confiança metodológica, acompanhados de rótulos cautelosos.
 
 ## Fluxo
 

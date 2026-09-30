@@ -97,6 +97,15 @@ WEB_UI_HTML = r"""<!doctype html>
     .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #e7f0eb; color: var(--brand-dark); font-size: .72rem; font-weight: 800; }
     .summary-box { margin-top: 18px; padding: 16px; border-radius: 13px; background: #eef5f0; }
     .summary-box strong { display: block; margin-bottom: 5px; }
+    .claim-navigation { margin-bottom: 20px; padding: 20px 24px; }
+    .claim-navigation p { margin: -6px 0 14px; color: var(--muted); font-size: .88rem; }
+    .claim-tabs { display: grid; gap: 9px; }
+    .claim-tab {
+      width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 11px 14px;
+      background: #fbfcf9; color: var(--ink); font-weight: 650; text-align: left;
+    }
+    .claim-tab:hover { border-color: var(--brand); background: #eef5f0; color: var(--brand-dark); }
+    .claim-tab[aria-selected="true"] { border-color: var(--brand); background: var(--brand); color: white; }
     .finding { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcf9; }
     .finding[data-relation="CONTRADICTS"] { border-left: 5px solid var(--danger); }
     .finding[data-relation="SUPPORTS"] { border-left: 5px solid var(--brand); }
@@ -154,6 +163,11 @@ WEB_UI_HTML = r"""<!doctype html>
     </section>
 
     <section id="result" aria-live="polite">
+      <section id="claim-navigation" class="panel claim-navigation" aria-labelledby="claims-title">
+        <h3 id="claims-title">Alegações identificadas no artigo</h3>
+        <p>Cada alegação possui busca, evidências e resultado próprios. Selecione uma para conferir.</p>
+        <div id="claim-tabs" class="claim-tabs" role="tablist"></div>
+      </section>
       <div class="result-grid">
         <article class="panel result-card">
           <div class="kicker">Resposta em linguagem clara</div>
@@ -239,7 +253,7 @@ WEB_UI_HTML = r"""<!doctype html>
     function percentage(value, suffix) {
       return value == null ? 'Não avaliado' : `${Math.round(value)}%${suffix || ''}`;
     }
-    function renderResult(data) {
+    function renderResult(data, shouldScroll) {
       const report = data.report || {};
       const verification = data.verification || {};
       const submitted = data.submitted_article || {};
@@ -328,14 +342,38 @@ WEB_UI_HTML = r"""<!doctype html>
         sources.appendChild(li);
       });
       statusBox.style.display = 'none'; resultBox.style.display = 'block'; submit.disabled = false;
-      resultBox.scrollIntoView({behavior: 'smooth', block: 'start'});
+      if (shouldScroll !== false) resultBox.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+    function renderAnalysis(data) {
+      const navigation = document.getElementById('claim-navigation');
+      const tabs = document.getElementById('claim-tabs'); clearNode(tabs);
+      const analyses = (data.claim_analyses || []).filter(item => item.status === 'SUCCEEDED' && item.result);
+      if (!analyses.length) {
+        navigation.style.display = 'none';
+        renderResult(data, true);
+        return;
+      }
+      navigation.style.display = 'block';
+      analyses.forEach((analysis, index) => {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'claim-tab'; button.setAttribute('role', 'tab');
+        button.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+        button.textContent = `${index + 1}. ${analysis.claim?.text || analysis.claim_id}`;
+        button.addEventListener('click', () => {
+          tabs.querySelectorAll('.claim-tab').forEach(item => item.setAttribute('aria-selected', 'false'));
+          button.setAttribute('aria-selected', 'true');
+          renderResult(analysis.result, false);
+        });
+        tabs.appendChild(button);
+      });
+      renderResult(analyses[0].result, true);
     }
     async function poll(statusUrl) {
       for (;;) {
         const response = await fetch(statusUrl, {headers: {'Accept': 'application/json'}});
         if (!response.ok) throw new Error('Não foi possível consultar o andamento da análise.');
         const job = await response.json(); setProgress(job.status, job.progress || 0);
-        if (job.status === 'SUCCEEDED') { renderResult(job.result); return; }
+        if (job.status === 'SUCCEEDED') { renderAnalysis(job.result); return; }
         if (job.status === 'FAILED') throw new Error(job.error?.message || 'A análise falhou.');
         await new Promise(resolve => setTimeout(resolve, 700));
       }

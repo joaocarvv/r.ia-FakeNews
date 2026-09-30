@@ -84,6 +84,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Imagem ou arquivo do artigo", page)
         self.assertIn("não oferece diagnóstico", page)
         self.assertIn("Resposta em linguagem clara", page)
+        self.assertIn("Alegações identificadas no artigo", page)
         self.assertIn("O que conseguimos ler", page)
         self.assertIn("Evidências independentes encontradas", page)
         self.assertIn("Ver detalhes técnicos e alertas", page)
