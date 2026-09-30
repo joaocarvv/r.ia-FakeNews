@@ -2,7 +2,7 @@
 
 O fluxo principal definido para o MVP está documentado em [`docs/fluxo-mvp.md`](docs/fluxo-mvp.md).
 
-Jupyter Notebook executável para verificar afirmações pelo cruzamento de fontes reais. O pipeline analisa a claim, consulta o PubMed, normaliza e deduplica documentos, cria chunks, executa busca híbrida, classifica as evidências e gera uma síntese com as fontes utilizadas.
+Jupyter Notebook executável para verificar afirmações pelo cruzamento de fontes reais. O pipeline analisa a claim e agora suporta pesquisa federada em PubMed, OpenAlex e periódicos SciELO indexados pelo OpenAlex; em seguida, normaliza e deduplica documentos, cria chunks, executa busca híbrida, classifica as evidências e gera uma síntese com as fontes utilizadas.
 
 A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou falso. O resultado descreve o conjunto recuperado como `EVIDENCE_SUPPORTS`, `EVIDENCE_AGAINST`, `INCONCLUSIVE` ou `CONFLICTING_EVIDENCE`.
 
@@ -13,6 +13,8 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 - `notebooks/18_validacao_api_http.ipynb`: validação reproduzível do contrato HTTP assíncrono para iniciar e consultar análises.
 - `notebooks/19_validacao_confiabilidade.ipynb`: benchmark inicial das regras de abstenção e exclusão de artigos retratados.
 - `notebooks/20_validacao_pesquisa_adversarial.ipynb`: validação controlada do pesquisador, crítico e árbitro determinístico com checagem de proveniência.
+- `notebooks/21_validacao_fontes_cientificas.ipynb`: auditoria ao vivo de acesso e papel das fontes científicas abertas, editoriais e manuais consideradas pelo grupo.
+- `notebooks/22_validacao_busca_federada.ipynb`: validação da normalização, deduplicação, proveniência e ranking federado entre PubMed, OpenAlex e SciELO via OpenAlex.
 - `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
 - `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
 - `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.
@@ -136,24 +138,38 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 | `GEMINI_API_KEY` | Recomendada | vazio | Autentica a análise, classificação e síntese com Gemini. Sem ela, o notebook usa o fallback local. |
 | `LLM_MODEL` | Não | `gemini-flash-lite-latest` | Modelo Gemini usado pelo endpoint REST. Troque somente por um modelo disponível na sua conta. |
 | `EMBEDDING_MODEL` | Não | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Modelo local multilíngue usado na busca semântica. |
+| `TRANSLATION_MODEL` | Não | `Helsinki-NLP/opus-mt-ROMANCE-en` | Traduz localmente a alegação em português para ampliar a busca científica em inglês; não produz o veredito. |
 | `NCBI_API_KEY` | Não | vazio | Aumenta o limite da API do NCBI. A POC funciona sem essa chave. |
 | `NCBI_EMAIL` | Recomendada | vazio | Identifica o responsável pelas chamadas ao NCBI. Use um e-mail de contato válido. |
+| `OPENALEX_API_KEY` | Recomendada | vazio | Autentica a busca no OpenAlex; obtenha uma chave gratuita para limites mais estáveis. |
+| `SPRINGER_META_API_KEY` | Não | vazio | Habilita a busca de metadados da Springer Nature na auditoria de fontes. |
+| `SPRINGER_OPENACCESS_API_KEY` | Não | vazio | Habilita a busca de conteúdo aberto da Springer Nature na auditoria de fontes. |
+| `ELSEVIER_API_KEY` | Não | vazio | Habilita a busca na API ScienceDirect da Elsevier na auditoria de fontes. |
 | `MAX_SOURCES` | Não | `8` | Máximo de publicações recuperadas por claim. |
 | `CHUNK_WORDS` | Não | `60` | Tamanho aproximado de cada chunk em palavras. |
 | `CHUNK_OVERLAP` | Não | `12` | Sobreposição entre chunks consecutivos. Deve ser menor que `CHUNK_WORDS`. |
 | `TOP_K` | Não | `6` | Número máximo de trechos enviados à classificação. |
 | `HTTP_TIMEOUT` | Não | `20` | Timeout, em segundos, para APIs e páginas externas. |
 | `LLM_TIMEOUT` | Não | `120` | Timeout, em segundos, para uma chamada Gemini. |
+| `LLM_MAX_ATTEMPTS` | Não | `3` | Tentativas para erros temporários `429`, `5xx` e falhas de rede da Gemini. |
+| `LLM_RETRY_BACKOFF` | Não | `1` | Espera exponencial inicial, em segundos, entre tentativas da Gemini. |
+| `DOCUMENT_MAX_PAGES` | Não | `100` | Limite de páginas processadas localmente pelo LiteParse. |
+| `DOCUMENT_PARSE_TIMEOUT` | Não | `45` | Limite, em segundos, para interpretar um documento local. |
 | `WEB_URLS` | Não | vazio | URLs públicas adicionais, separadas por vírgula. Exige Crawl4AI. |
 
 Exemplo completo:
 
 ```dotenv
 EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+TRANSLATION_MODEL=Helsinki-NLP/opus-mt-ROMANCE-en
 GEMINI_API_KEY=cole_sua_chave_aqui
 LLM_MODEL=gemini-flash-lite-latest
 NCBI_API_KEY=
 NCBI_EMAIL=seu-email@exemplo.com
+OPENALEX_API_KEY=
+SPRINGER_META_API_KEY=
+SPRINGER_OPENACCESS_API_KEY=
+ELSEVIER_API_KEY=
 MAX_SOURCES=8
 CHUNK_WORDS=60
 CHUNK_OVERLAP=12
@@ -236,6 +252,21 @@ plot_evidence_map(resultado)
 
 O retorno contém a claim, status, resumo, evidências, URLs, agregação, métricas, erros observados e os modelos usados.
 
+### Teste web com artigos
+
+Para abrir o protótipo que aceita link/DOI de artigo, PDF ou imagem:
+
+```bash
+.venv/bin/python run_acceptance_app.py
+```
+
+No Windows, use `.venv/Scripts/python.exe`. Depois, acesse
+`http://127.0.0.1:5000`. PDFs são convertidos localmente pelo LiteParse antes da
+extração das alegações; links do PubMed são resolvidos diretamente pelas APIs do
+NCBI. Com `GEMINI_API_KEY` configurada, a aplicação extrai a alegação principal,
+busca evidências independentes e valida se os trechos citados existem nos abstracts
+originais. A análise mede compatibilidade, nunca declara o artigo verdadeiro ou falso.
+
 ## 9. Solução de problemas
 
 ### `401`, `403` ou chave inválida
@@ -250,7 +281,16 @@ O catálogo da Gemini API muda ao longo do tempo. Atualize `LLM_MODEL` no `.env`
 
 ### `429` ou `503` na Gemini API
 
-A cota gratuita ou a capacidade temporária pode ter sido atingida. Aguarde e execute novamente. O notebook registra a falha e tenta o classificador local quando possível.
+A cota ou a capacidade temporária pode ter sido atingida. A aplicação repete a
+chamada até `LLM_MAX_ATTEMPTS` vezes, com espera progressiva. Se todas falharem,
+ela informa indisponibilidade temporária sem confundir essa falha com ausência de
+alegação no artigo.
+
+### PDF sem texto suficiente
+
+O LiteParse trabalha localmente e usa OCR, mas documentos digitalizados, tabelas
+densas, fórmulas e gráficos ainda podem exigir um parser mais avançado. A aplicação
+interrompe a análise quando não há texto suficiente, em vez de fabricar conteúdo.
 
 ### Kernel ou imports não encontrados
 

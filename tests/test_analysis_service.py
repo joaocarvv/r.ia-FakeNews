@@ -28,6 +28,7 @@ from fatofake import (
     StudyDesign,
     ValidationStatus,
 )
+from fatofake.pubmed import PubMedSearchResult, QueryResult
 
 
 class Planner:
@@ -59,6 +60,19 @@ class PubMedClientStub:
     def fetch_summaries(self, identifiers, matched_queries):
         by_id = {item.pmid: item for item in self.publications}
         return tuple(by_id[identifier] for identifier in identifiers)
+
+
+class SearchEngineStub:
+    def __init__(self, publications):
+        self.publications = tuple(publications)
+        self.calls = []
+
+    def search(self, search_plan, *, max_results_per_query):
+        self.calls.append((search_plan, max_results_per_query))
+        return PubMedSearchResult(
+            query_results=(QueryResult(search_plan.queries[0], len(self.publications)),),
+            publications=self.publications,
+        )
 
 
 def assessment(pmid, relation=RelationLabel.SUPPORTS):
@@ -210,6 +224,28 @@ class MultiArticleAnalysisServiceTests(unittest.TestCase):
         self.assertEqual(processor.calls, ["1", "2"])
         self.assertEqual({source.pmid for source in result.report.sources if source.pmid}, {"1", "2"})
 
+    def test_accepts_a_federated_search_engine_instead_of_a_pubmed_client(self):
+        publications = [publication("1"), publication("2")]
+        processor = ProcessorStub([bundle("1"), bundle("2")])
+        engine = SearchEngineStub(publications)
+        service = MultiArticleAnalysisService(
+            query_planner=Planner(),
+            search_engine=engine,
+            article_processor=processor,
+            config=MultiArticleAnalysisConfig(
+                max_results_per_query=4,
+                target_articles=2,
+                minimum_successful_articles=2,
+            ),
+        )
+
+        result = service.analyze(
+            "Beber café pode alterar o risco de câncer de próstata."
+        )
+
+        self.assertEqual(result.synthesis.article_count, 2)
+        self.assertEqual(engine.calls[0][1], 4)
+
     def test_skips_failure_and_continues_to_next_candidate(self):
         publications = [publication("1"), publication("2"), publication("3")]
         processor = ProcessorStub(
@@ -270,6 +306,18 @@ class MultiArticleAnalysisServiceTests(unittest.TestCase):
             MultiArticleAnalysisConfig(target_articles=1)
         with self.assertRaises(Exception):
             MultiArticleAnalysisConfig(target_articles=2, minimum_successful_articles=3)
+        with self.assertRaises(Exception):
+            MultiArticleAnalysisService(
+                query_planner=Planner(),
+                article_processor=ProcessorStub([]),
+            )
+        with self.assertRaises(Exception):
+            MultiArticleAnalysisService(
+                query_planner=Planner(),
+                pubmed_client=PubMedClientStub([]),
+                search_engine=SearchEngineStub([]),
+                article_processor=ProcessorStub([]),
+            )
 
 
 if __name__ == "__main__":

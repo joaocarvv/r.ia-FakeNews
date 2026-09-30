@@ -47,6 +47,15 @@ class RunnerStub:
         return self.result
 
 
+class ArticleRunnerStub:
+    def __init__(self):
+        self.submissions = []
+
+    def analyze_article(self, submission):
+        self.submissions.append(submission)
+        return {"submitted_article": {"primary_claim": "Extracted claim."}}
+
+
 class ApiTests(unittest.TestCase):
     def app_for(self, runner):
         service = AnalysisJobService(
@@ -62,6 +71,22 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"status": "ok"})
+
+    def test_serves_the_user_acceptance_page(self):
+        app, _service = self.app_for(RunnerStub())
+
+        response = app.test_client().get("/")
+        page = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Qual artigo você quer verificar?", page)
+        self.assertIn("/api/v1/article-analyses", page)
+        self.assertIn("Imagem ou arquivo do artigo", page)
+        self.assertIn("não oferece diagnóstico", page)
+        self.assertIn("Verificação parcial", page)
+        self.assertIn("Meta-análises", page)
+        self.assertIn("Ensaios clínicos", page)
+        self.assertIn("Alertas da análise", page)
 
     def test_creates_job_and_returns_completed_result(self):
         runner = RunnerStub()
@@ -93,6 +118,55 @@ class ApiTests(unittest.TestCase):
             runner.calls,
             [("Beber café pode alterar o risco de câncer.", "10.1000/example")],
         )
+
+    def test_creates_article_first_job_from_a_link(self):
+        article_runner = ArticleRunnerStub()
+        service = AnalysisJobService(
+            RunnerStub(),
+            article_runner=article_runner,
+            executor=ImmediateExecutor(),
+            result_serializer=lambda result: result,
+        )
+        client = create_app(service).test_client()
+
+        created = client.post(
+            "/api/v1/article-analyses",
+            json={"article_reference": "https://doi.org/10.1000/example"},
+        )
+        fetched = client.get(created.get_json()["status_url"]).get_json()
+
+        self.assertEqual(created.status_code, 202)
+        self.assertEqual(fetched["status"], "SUCCEEDED")
+        self.assertEqual(
+            fetched["result"]["submitted_article"]["primary_claim"],
+            "Extracted claim.",
+        )
+        self.assertEqual(article_runner.submissions[0].reference, "10.1000/example")
+
+    def test_article_endpoint_requires_exactly_one_source(self):
+        article_runner = ArticleRunnerStub()
+        service = AnalysisJobService(
+            RunnerStub(),
+            article_runner=article_runner,
+            executor=ImmediateExecutor(),
+        )
+        client = create_app(service).test_client()
+
+        missing = client.post("/api/v1/article-analyses", json={})
+        duplicate = client.post(
+            "/api/v1/article-analyses",
+            json={
+                "article_reference": "10.1000/example",
+                "article_file": {
+                    "name": "article.pdf",
+                    "mime_type": "application/pdf",
+                    "data_base64": "JVBERg==",
+                },
+            },
+        )
+
+        self.assertEqual(missing.status_code, 422)
+        self.assertEqual(duplicate.status_code, 422)
 
     def test_rejects_invalid_requests(self):
         app, _service = self.app_for(RunnerStub())

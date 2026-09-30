@@ -87,16 +87,34 @@ Permitir que o usuário verifique uma alegação sobre saúde com base em evidê
 
 Essa etapa valida regras de software com agentes controlados; não representa validação clínica nem demonstra que uma IA possa validar outra IA.
 
-**Próxima etapa:** implementar adaptadores reais e versionados para os agentes e construir um conjunto prata baseado em revisões, diretrizes e casos de retratação, medindo recuperação, correção das citações, abstenção e falsa segurança.
+**Etapa concluída:** auditar todas as fontes sugeridas pelo grupo, separando descoberta, conteúdo, validação, plataformas editoriais e conferência manual. O teste ao vivo confirmou acesso a PubMed, PMC, ClinicalTrials.gov, Crossref/Retraction Watch, OpenAlex, DataCite, catálogo SciELO, Springer Nature Meta, Springer Nature Open Access e ScienceDirect.
+
+**Comprovação:** [`notebooks/21_validacao_fontes_cientificas.ipynb`](../notebooks/21_validacao_fontes_cientificas.ipynb).
+
+Nature não é contada como índice independente, e Google Acadêmico permanece fora da automação por não possuir uma API pública suportada no projeto. A disponibilidade de uma fonte não comprova cobertura, relevância nem qualidade científica.
+
+**Etapa concluída:** implementar a busca federada em PubMed, OpenAlex e periódicos da lista SciELO via OpenAlex, normalizando os resultados, deduplicando por DOI, PMID ou título/ano/primeiro autor e combinando posições por Reciprocal Rank Fusion. Falhas isoladas não interrompem as demais fontes, e trabalhos sem PMID permanecem auditáveis sem serem enviados incorretamente ao PMC.
+
+**Comprovação:** [`notebooks/22_validacao_busca_federada.ipynb`](../notebooks/22_validacao_busca_federada.ipynb).
+
+O uso de SciELO via OpenAlex é explicitado na proveniência. O ArticleMeta permanece útil para catálogo e metadados, mas não é apresentado como mecanismo de busca temática. A validação controlada comprova as regras de software; ela não mede recall clínico nem qualidade dos resultados reais.
+
+**Etapa concluída:** processar PDFs localmente com LiteParse antes de enviar o texto ao Gemini, preservando o nome do parser e a contagem de páginas. A ingestão rejeita documentos sem texto suficiente em vez de inferir conteúdo ausente. Chamadas Gemini passam a repetir automaticamente erros temporários `429`, `5xx`, timeout e falhas de rede.
+
+**Comprovação:** [`notebooks/23_validacao_ingestao_liteparse.ipynb`](../notebooks/23_validacao_ingestao_liteparse.ipynb).
+
+Essa etapa cria a base de ingestão para uma experiência semelhante ao NotebookLM, mas ainda não implementa uma biblioteca persistente de múltiplos documentos nem perguntas conversacionais sobre o acervo.
+
+**Próxima etapa:** criar a biblioteca de fontes da análise, fragmentar cada documento com proveniência de página e responder perguntas apenas com citações dos trechos recuperados. Em paralelo, construir um conjunto prata para medir `Recall@K`, `Precision@K`, MRR, cobertura e duplicação residual.
 
 ## Fluxo
 
-1. O usuário envia a alegação e, opcionalmente, um artigo.
-2. O sistema identifica e normaliza a alegação.
-3. O sistema busca artigos científicos relacionados.
+1. O usuário envia um link/DOI, PDF ou imagem de um artigo.
+2. O sistema recupera ou interpreta o documento e extrai a alegação principal.
+3. O sistema busca artigos científicos independentes relacionados.
 4. O sistema seleciona e analisa as evidências encontradas.
-5. O sistema compara as evidências com a alegação.
-6. O sistema gera um relatório para o usuário.
+5. O sistema compara as evidências com a alegação extraída.
+6. O sistema gera um relatório para o usuário, com alertas e fontes conferíveis.
 
 ## Saída
 
@@ -110,9 +128,11 @@ O relatório deve apresentar:
 ## Resumo visual
 
 ```text
-Alegação + artigo opcional
+Link, PDF ou imagem do artigo
             ↓
-  Busca de evidências
+Leitura + alegação extraída
+            ↓
+ Busca de evidências independentes
             ↓
  Análise e comparação
             ↓
