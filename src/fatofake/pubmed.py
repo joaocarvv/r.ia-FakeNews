@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .search_preparation import SearchPlan
-from .transport import default_ssl_context
+from .transport import default_ssl_context, wait_for_ncbi_slot
 
 
 EUTILS_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
@@ -75,25 +75,28 @@ class PubMedClient:
         self._ssl_context = ssl_context or default_ssl_context()
 
     def _request_json(self, endpoint: str, params: Mapping[str, str]) -> Mapping[str, Any]:
-        minimum_interval = 0.11 if self.api_key else 0.34
-        if self._last_request_at is not None:
-            elapsed = time.monotonic() - self._last_request_at
-            if elapsed < minimum_interval:
-                time.sleep(minimum_interval - elapsed)
-
         url = f"{EUTILS_BASE_URL}/{endpoint}?{urlencode(params)}"
         request = Request(url, headers={"User-Agent": "FatoOuFake/0.1"})
-        try:
-            with urlopen(
-                request,
-                timeout=self.timeout,
-                context=self._ssl_context,
-            ) as response:
-                payload = json.load(response)
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
-            raise PubMedError(f"Falha ao consultar o PubMed: {error}") from error
-        finally:
-            self._last_request_at = time.monotonic()
+        payload: Any = None
+        for attempt in range(3):
+            wait_for_ncbi_slot(bool(self.api_key))
+            try:
+                with urlopen(
+                    request,
+                    timeout=self.timeout,
+                    context=self._ssl_context,
+                ) as response:
+                    payload = json.load(response)
+                break
+            except HTTPError as error:
+                # 429/5xx são transitórios: espera crescente antes de desistir.
+                if error.code not in {429, 500, 502, 503, 504} or attempt == 2:
+                    raise PubMedError(f"Falha ao consultar o PubMed: {error}") from error
+                time.sleep(1.0 * (2**attempt))
+            except (URLError, TimeoutError, json.JSONDecodeError) as error:
+                raise PubMedError(f"Falha ao consultar o PubMed: {error}") from error
+            finally:
+                self._last_request_at = time.monotonic()
 
         if not isinstance(payload, dict):
             raise PubMedError("O PubMed retornou uma resposta JSON inesperada.")

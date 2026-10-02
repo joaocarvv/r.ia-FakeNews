@@ -304,8 +304,18 @@ def deduplicate_works(
     return tuple(work for _, work in merged)
 
 
+_PUBMED_TAG_PATTERN = re.compile(r"\[(filter|sb|mesh[^\]]*|tiab|pt|majr)\]", re.IGNORECASE)
+
+
+def uses_pubmed_syntax(query: str) -> bool:
+    """Consultas com tags do PubMed não fazem sentido em outras fontes."""
+
+    return bool(_PUBMED_TAG_PATTERN.search(query))
+
+
 class PubMedSearchProvider:
     name = "PubMed"
+    pubmed_syntax = True
 
     def __init__(self, client: PubMedClient) -> None:
         self.client = client
@@ -567,6 +577,100 @@ class ScieloSearchProvider(OpenAlexSearchProvider):
         )
 
 
+class EuropePmcSearchProvider:
+    """Europe PMC: indexa preprints e busca também no texto completo aberto."""
+
+    name = "Europe PMC"
+    SEARCH_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+
+    def __init__(
+        self,
+        *,
+        timeout: float = 20.0,
+        fetch_json: Callable[[str], Mapping[str, Any]] | None = None,
+        ssl_context: ssl.SSLContext | None = None,
+    ) -> None:
+        self.timeout = timeout
+        self._ssl_context = ssl_context or default_ssl_context()
+        self._fetch_json = fetch_json or self._request_json
+
+    def _request_json(self, url: str) -> Mapping[str, Any]:
+        request = Request(url, headers={"User-Agent": "FatoOuFake/0.1", "Accept": "application/json"})
+        try:
+            with urlopen(request, timeout=self.timeout, context=self._ssl_context) as response:
+                return json.loads(response.read(5_000_000).decode("utf-8"))
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError) as error:
+            raise RetrievalError(f"Europe PMC indisponível: {error}") from error
+
+    @staticmethod
+    def _scoped(query: str) -> str:
+        """Sem campo, o Europe PMC busca no texto completo e devolve muito ruído."""
+
+        if re.fullmatch(r"10\.\d{4,9}/\S+", query.strip()) or re.search(r"\b[A-Z_]+:", query):
+            return query
+        return f"(TITLE:({query}) OR ABSTRACT:({query}))"
+
+    def search(self, query: str, *, max_results: int) -> ProviderSearchResult:
+        params = urlencode(
+            {
+                "query": self._scoped(query),
+                "resultType": "lite",
+                "format": "json",
+                # A ordem padrão já é por relevância; "sort=RELEVANCE" devolve HTTP 503.
+                "pageSize": str(max_results),
+            }
+        )
+        payload = self._fetch_json(f"{self.SEARCH_URL}?{params}")
+        try:
+            total = int(payload.get("hitCount") or 0)
+        except (TypeError, ValueError):
+            total = 0
+        works = []
+        for rank, item in enumerate((payload.get("resultList") or {}).get("result") or [], start=1):
+            title = " ".join(str(item.get("title") or "").split()).rstrip(".")
+            if not title:
+                continue
+            doi = normalize_doi(item.get("doi"))
+            pmid = normalize_pmid(item.get("pmid"))
+            pmcid = str(item.get("pmcid") or "") or None
+            source_id = str(item.get("id") or pmid or doi or title)
+            is_preprint = str(item.get("source") or "").upper() == "PPR"
+            url = (
+                f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                if pmid
+                else f"https://doi.org/{doi}"
+                if doi
+                else f"https://europepmc.org/article/{item.get('source')}/{source_id}"
+            )
+            works.append(
+                ScientificWork(
+                    title=title,
+                    authors=tuple(
+                        name.strip()
+                        for name in str(item.get("authorString") or "").rstrip(".").split(",")
+                        if name.strip()
+                    )[:20],
+                    journal=item.get("journalTitle") or ("Preprint" if is_preprint else None),
+                    publication_date=str(item.get("firstPublicationDate") or item.get("pubYear") or "") or None,
+                    doi=doi,
+                    pmid=pmid,
+                    url=url,
+                    matched_queries=(query,),
+                    sources=(self.name,),
+                    source_ids=((self.name, source_id),),
+                    source_ranks=(SourceRank(self.name, query, rank),),
+                    citation_count=item.get("citedByCount"),
+                    full_text_url=(
+                        f"https://europepmc.org/article/PMC/{pmcid}"
+                        if pmcid and str(item.get("isOpenAccess") or "").upper() == "Y"
+                        else None
+                    ),
+                    publication_types=("Preprint",) if is_preprint else (),
+                )
+            )
+        return ProviderSearchResult(self.name, query, total, tuple(works))
+
+
 @dataclass(frozen=True)
 class OpenAlexGraphResult:
     works: tuple[ScientificWork, ...]
@@ -685,6 +789,8 @@ class FederatedSearchEngine:
         raw_works: list[ScientificWork] = []
         for provider in self.providers:
             for query in search_plan.queries:
+                if uses_pubmed_syntax(query) and not getattr(provider, "pubmed_syntax", False):
+                    continue
                 try:
                     result = provider.search(query, max_results=max_results_per_query)
                 except (PubMedError, RetrievalError, ValueError) as error:

@@ -21,6 +21,62 @@ class OpenAccessContentError(RuntimeError):
     """Uma página aberta não pôde ser recuperada com segurança."""
 
 
+class Crawl4AiFetcher:
+    """Renderiza páginas que dependem de JavaScript com navegador headless.
+
+    Opcional: só é usado quando o pacote ``crawl4ai`` está instalado e o HTML
+    simples não trouxe texto científico suficiente. O robots.txt continua sendo
+    conferido antes, pelo cliente de acesso aberto.
+    """
+
+    def __init__(self, *, timeout: float = 45.0) -> None:
+        import crawl4ai  # noqa: F401  - falha cedo se o pacote não existir
+
+        self.timeout = timeout
+
+    def fetch_markdown(self, url: str) -> str:
+        import asyncio
+
+        from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
+
+        async def crawl() -> str:
+            config = CrawlerRunConfig(
+                check_robots_txt=True,
+                page_timeout=int(self.timeout * 1000),
+            )
+            async with AsyncWebCrawler() as crawler:
+                result = await crawler.arun(url=url, config=config)
+            if not getattr(result, "success", False):
+                raise OpenAccessContentError(
+                    f"O navegador headless não conseguiu abrir a página: {getattr(result, 'error_message', '')}"
+                )
+            markdown = getattr(result, "markdown", "") or ""
+            return str(getattr(markdown, "raw_markdown", markdown))
+
+        return asyncio.run(crawl())
+
+
+def sections_from_markdown(markdown: str) -> tuple[ContentSection, ...]:
+    sections: list[ContentSection] = []
+    title = "Texto completo"
+    buffer: list[str] = []
+
+    def flush() -> None:
+        text = "\n".join(buffer).strip()
+        if len(text) >= 100:
+            sections.append(ContentSection(title=title, text=text))
+
+    for line in markdown.splitlines():
+        heading = re.match(r"^#{1,4}\s+(.+)$", line.strip())
+        if heading:
+            flush()
+            title, buffer = heading.group(1).strip()[:120], []
+        else:
+            buffer.append(line)
+    flush()
+    return tuple(sections)
+
+
 @dataclass(frozen=True)
 class HttpDocument:
     final_url: str
@@ -81,14 +137,16 @@ class OpenAccessContentClient:
         max_bytes: int = 20 * 1024 * 1024,
         fetch_document: DocumentFetcher | None = None,
         ssl_context: ssl.SSLContext | None = None,
+        browser_fetcher: Crawl4AiFetcher | None = None,
     ) -> None:
         self.document_parser = document_parser
+        self.browser_fetcher = browser_fetcher
         self.timeout = timeout
         self.max_bytes = max_bytes
         self._ssl_context = ssl_context or default_ssl_context()
         self._fetch_document = fetch_document or self._request_document
 
-    def _request_document(self, url: str) -> HttpDocument:
+    def _check_robots(self, url: str) -> None:
         parsed = urlparse(url)
         if parsed.scheme != "https" or not parsed.hostname:
             raise OpenAccessContentError("A fonte aberta precisa usar HTTPS.")
@@ -107,10 +165,19 @@ class OpenAccessContentClient:
                 robots.parse(
                     response.read(512_000).decode("utf-8", errors="replace").splitlines()
                 )
-        except (OSError, HTTPError, URLError, TimeoutError):
+        except HTTPError as error:
+            # RFC 9309: robots.txt ausente ou inacessível (4xx, exceto 429) permite o
+            # acesso; erro do servidor (5xx) ou 429 deve ser tratado como bloqueio.
+            if 400 <= error.code < 500 and error.code != 429:
+                return
+            raise OpenAccessContentError("Não foi possível conferir o robots.txt da fonte.")
+        except (OSError, URLError, TimeoutError):
             raise OpenAccessContentError("Não foi possível conferir o robots.txt da fonte.")
         if not robots.can_fetch("FatoOuFake/0.1", url):
             raise OpenAccessContentError("A fonte não permite recuperação automatizada.")
+
+    def _request_document(self, url: str) -> HttpDocument:
+        self._check_robots(url)
         request = Request(url, headers={"User-Agent": "FatoOuFake/0.1"})
         try:
             with urlopen(request, timeout=self.timeout, context=self._ssl_context) as response:
@@ -174,6 +241,11 @@ class OpenAccessContentClient:
         )
         full_text = "\n\n".join(section.text for section in sections)
         full_text = re.sub(r"\n{3,}", "\n\n", full_text).strip()
+        if len(full_text) < 500 and self.browser_fetcher is not None:
+            # Páginas montadas por JavaScript chegam quase vazias no HTML bruto.
+            markdown = self.browser_fetcher.fetch_markdown(document.final_url)
+            sections = sections_from_markdown(markdown)
+            full_text = "\n\n".join(section.text for section in sections).strip()
         if len(full_text) < 500:
             raise OpenAccessContentError(
                 "A página aberta não forneceu texto científico suficiente."

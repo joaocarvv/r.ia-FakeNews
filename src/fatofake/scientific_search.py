@@ -138,7 +138,11 @@ def expand_scientific_queries(
         )
     if seed_authors:
         first_author = " ".join(seed_authors[0].split())
-        topic = " ".join(_tokens(claim)[:4])
+        # A alegação pode estar em português; a consulta temática já está em inglês.
+        topic = " ".join(
+            token for token in _tokens(thematic) if token not in {"and", "not"}
+        )[:120] or " ".join(_tokens(claim)[:4])
+        topic = " ".join(topic.split()[:4])
         candidates.append(
             ExpandedQuery(
                 f'"{first_author}" {topic}'.strip()[:300],

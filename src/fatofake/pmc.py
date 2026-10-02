@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .pubmed import Publication
-from .transport import default_ssl_context
+from .transport import default_ssl_context, wait_for_ncbi_slot
 
 
 PMC_ID_CONVERTER_URL = "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/"
@@ -61,6 +61,24 @@ def _element_text(element: ET.Element | None) -> str:
     return " ".join("".join(element.itertext()).split())
 
 
+def _declarations_text(root: ET.Element) -> str:
+    """Financiamento, agradecimentos e conflitos de interesse do JATS."""
+
+    blocks: list[str] = []
+    for path in (
+        ".//funding-group",
+        ".//back/ack",
+        ".//author-notes/fn",
+        ".//back/fn-group/fn",
+        ".//back/notes",
+    ):
+        for element in root.findall(path):
+            text = _element_text(element)
+            if text and len(text) >= 20:
+                blocks.append(text)
+    return "\n\n".join(dict.fromkeys(blocks))[:6000]
+
+
 class PmcClient:
     """Cliente limitado ao ID Converter e ao EFetch do NCBI."""
 
@@ -93,12 +111,7 @@ class PmcClient:
         self._sleep = sleep
 
     def _wait_for_rate_limit(self) -> None:
-        minimum_interval = 0.11 if self.api_key else 0.34
-        if self._last_request_at is None:
-            return
-        elapsed = time.monotonic() - self._last_request_at
-        if elapsed < minimum_interval:
-            time.sleep(minimum_interval - elapsed)
+        wait_for_ncbi_slot(bool(self.api_key))
 
     def _request_bytes(self, url: str, params: Mapping[str, str]) -> bytes:
         request_url = f"{url}?{urlencode(params)}"
@@ -211,6 +224,10 @@ class PmcClient:
                 section_text = "\n\n".join(dict.fromkeys(blocks))
                 if section_text:
                     sections.append(ContentSection(title=title, text=section_text))
+        declarations = _declarations_text(root)
+        if declarations:
+            sections.append(ContentSection(title="Financiamento e declarações", text=declarations))
+            full_text = f"{full_text}\n\n{declarations}" if full_text else full_text
         return full_text, tuple(sections)
 
     def fetch_pmc_bioc_full_text(
