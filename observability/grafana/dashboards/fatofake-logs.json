@@ -1,0 +1,76 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "targets": [{"datasource": {"type": "loki", "uid": "loki"}, "editorMode": "code", "expr": "sum(count_over_time({service=\"fatofake\"} | json | analysis_id=~\"$analysis_id\" [$__range]))", "queryType": "instant", "refId": "A"}],
+      "title": "Eventos no período",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showPercentChange": false, "textMode": "auto", "wideLayout": true},
+      "targets": [{"datasource": {"type": "loki", "uid": "loki"}, "editorMode": "code", "expr": "sum(count_over_time({service=\"fatofake\", status=\"failed\"} | json | analysis_id=~\"$analysis_id\" [$__range]))", "queryType": "instant", "refId": "A"}],
+      "title": "Falhas",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "fieldConfig": {"defaults": {"color": {"mode": "continuous-GrYlRd"}, "unit": "ms"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 0},
+      "id": 3,
+      "options": {"displayMode": "gradient", "maxVizHeight": 300, "minVizHeight": 16, "minVizWidth": 8, "namePlacement": "auto", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true, "sizing": "auto", "valueMode": "color"},
+      "targets": [{"datasource": {"type": "loki", "uid": "loki"}, "editorMode": "code", "expr": "avg by (stage) (avg_over_time({service=\"fatofake\", event=\"pipeline.step\", status=\"completed\"} | json | analysis_id=~\"$analysis_id\" | unwrap duration_ms [$__range]))", "queryType": "instant", "refId": "A"}],
+      "title": "Duração média por etapa",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "custom": {"axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 15, "gradientMode": "none", "hideFrom": {"legend": false, "tooltip": false, "viz": false}, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 5, "scaleDistribution": {"type": "linear"}, "showPoints": "never", "spanNulls": false, "stacking": {"group": "A", "mode": "normal"}, "thresholdsStyle": {"mode": "off"}}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+      "id": 4,
+      "options": {"legend": {"calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true}, "tooltip": {"hideZeros": false, "mode": "multi", "sort": "desc"}},
+      "targets": [{"datasource": {"type": "loki", "uid": "loki"}, "editorMode": "code", "expr": "sum by (level) (count_over_time({service=\"fatofake\", level=~\"$level\"} | json | analysis_id=~\"$analysis_id\" [$__auto]))", "legendFormat": "{{level}}", "queryType": "range", "refId": "A"}],
+      "title": "Volume de logs por nível",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 14, "w": 24, "x": 0, "y": 12},
+      "id": 5,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true},
+      "targets": [{"datasource": {"type": "loki", "uid": "loki"}, "editorMode": "code", "expr": "{service=\"fatofake\", level=~\"$level\"} | json | analysis_id=~\"$analysis_id\" | line_format \"[{{.level}}] {{.event}} :: {{.stage}} :: {{.status}} :: {{.message}} ({{.duration_ms}} ms)\"", "queryType": "range", "refId": "A"}],
+      "title": "Execução detalhada",
+      "type": "logs"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": ["fatofake", "logs", "loki"],
+  "templating": {
+    "list": [
+      {"allValue": ".*", "current": {"text": "Todos", "value": "$__all"}, "hide": 0, "includeAll": true, "label": "Nível", "multi": true, "name": "level", "options": [{"selected": true, "text": "Todos", "value": "$__all"}, {"selected": false, "text": "INFO", "value": "INFO"}, {"selected": false, "text": "WARNING", "value": "WARNING"}, {"selected": false, "text": "ERROR", "value": "ERROR"}], "query": "INFO,WARNING,ERROR", "type": "custom"},
+      {"current": {"text": ".*", "value": ".*"}, "description": "Regex ou UUID de uma análise; use .* para todas", "label": "Analysis ID", "name": "analysis_id", "options": [{"selected": true, "text": ".*", "value": ".*"}], "query": ".*", "type": "textbox"}
+    ]
+  },
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "FatoFake — Execução e Logs",
+  "uid": "fatofake-logs",
+  "version": 1,
+  "weekStart": ""
+}
