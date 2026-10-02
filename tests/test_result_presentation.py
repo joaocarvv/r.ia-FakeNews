@@ -80,6 +80,50 @@ class ResultPresentationTests(unittest.TestCase):
         self.assertEqual(summary["findings"], [])
         self.assertIn("não tiveram trecho comparável", " ".join(summary["caveats"]))
 
+    def test_keeps_assessment_visible_when_model_did_not_return_a_quote(self):
+        without_quote = article("1", "NEUTRAL")
+        without_quote["assessments"][0]["evidence"]["text"] = None
+        without_quote["assessments"][0]["rationale"] = "Related context only."
+        without_quote["retrieval"] = {
+            "sources": ["PubMed", "OpenAlex"],
+            "reranking_reasons": ["matched two claim concepts"],
+        }
+
+        summary = build_user_summary({"articles": (without_quote,)})
+
+        self.assertEqual(len(summary["findings"]), 1)
+        self.assertFalse(summary["findings"][0]["quote_available"])
+        self.assertEqual(summary["findings"][0]["rationale"], "Related context only.")
+        self.assertEqual(summary["findings"][0]["retrieval_sources"], ["PubMed", "OpenAlex"])
+
+    def test_exposes_search_crossing_trace(self):
+        traced = article("1", "SUPPORTS")
+        traced["retrieval"] = {"sources": ["PubMed", "OpenAlex"]}
+        result = {
+            "articles": (traced,),
+            "search": {
+                "candidate_count": 24,
+                "source_failure_count": 1,
+                "query_expansion": [{
+                    "query": "controlled query",
+                    "strategy": "PICO",
+                    "explanation": "Population and intervention terms.",
+                }],
+                "reranking": {
+                    "evaluated_count": 20,
+                    "accepted_count": 6,
+                    "rejected_count": 14,
+                },
+            },
+        }
+
+        trace = build_user_summary(result)["search_trace"]
+
+        self.assertEqual(trace["candidate_count"], 24)
+        self.assertEqual(trace["assessed_count"], 1)
+        self.assertEqual(trace["sources"], ["OpenAlex", "PubMed"])
+        self.assertEqual(trace["queries"], ["controlled query"])
+
 
 if __name__ == "__main__":
     unittest.main()

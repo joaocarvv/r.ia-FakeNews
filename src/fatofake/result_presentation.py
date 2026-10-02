@@ -15,6 +15,7 @@ _SCOPE_LABELS = {
     "FULL_TEXT": "texto completo",
     "OPEN_ACCESS_FULL_TEXT": "texto completo aberto",
     "LOCAL_PDF_FULL_TEXT": "PDF completo enviado",
+    "USER_PROVIDED_FULL_TEXT": "PDF completo enviado pelo usuário",
     "ABSTRACT_ONLY": "somente abstract",
     "ABSTRACT": "somente abstract",
     "METADATA_ONLY": "somente metadados",
@@ -85,6 +86,7 @@ def _finding(
     article: Mapping[str, Any], assessment: Mapping[str, Any]
 ) -> dict[str, Any]:
     evidence = assessment.get("evidence") or {}
+    retrieval = article.get("retrieval") or {}
     section = str(evidence.get("section") or "Seção não identificada")
     page = evidence.get("page")
     location = (
@@ -98,14 +100,24 @@ def _finding(
         "relation": relation,
         "relation_label": _RELATION_LABELS.get(relation, "Inconclusivo"),
         "article_title": article.get("title") or "Artigo sem título",
+        "journal": article.get("journal"),
+        "doi": article.get("doi"),
         "publication_date": article.get("publication_date"),
         "study_design": (article.get("quality") or {}).get("study_design"),
+        "article_title_pt": (assessment.get("study_row") or {}).get("title_pt") or None,
         "quote": evidence.get("text"),
+        "quote_pt": (assessment.get("study_row") or {}).get("quote_pt") or None,
+        "finding_pt": (assessment.get("study_row") or {}).get("finding_pt") or None,
+        "quote_available": bool(evidence.get("text")),
+        "rationale": assessment.get("rationale"),
         "location": location,
         "scope": scope,
         "scope_label": _SCOPE_LABELS.get(scope, scope.replace("_", " ").lower()),
         "source_url": evidence.get("source_url") or article.get("url"),
         "confidence": assessment.get("confidence"),
+        "retrieval_sources": list(retrieval.get("sources") or ()),
+        "relevance_reasons": list(retrieval.get("reranking_reasons") or ()),
+        "concept_matches": list(retrieval.get("concept_matches") or ()),
     }
 
 
@@ -127,7 +139,7 @@ def build_user_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     }
     full_text_count = sum(
         str(article.get("access_level") or "")
-        in {"FULL_TEXT", "OPEN_ACCESS_FULL_TEXT"}
+        in {"FULL_TEXT", "OPEN_ACCESS_FULL_TEXT", "USER_PROVIDED_FULL_TEXT"}
         and bool(article.get("assessments"))
         for article in articles
     )
@@ -136,7 +148,9 @@ def build_user_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         and bool(article.get("assessments"))
         for article in articles
     )
-    assessed_count = len({str(article.get("pmid") or id(article)) for article, _ in rows})
+    assessed_count = len(
+        {str(article.get("work_key") or article.get("pmid") or id(article)) for article, _ in rows}
+    )
     direct_count = counts["SUPPORTS"] + counts["CONTRADICTS"]
     status, headline = _headline(counts)
     submitted = result.get("submitted_article") or {}
@@ -171,7 +185,6 @@ def build_user_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     findings = [
         _finding(article, assessment)
         for article, assessment in rows
-        if (assessment.get("evidence") or {}).get("text")
     ]
     findings.sort(
         key=lambda item: (
@@ -235,6 +248,36 @@ def build_user_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         f"{abstract_count} somente pelo abstract."
     )
 
+    search = result.get("search") or {}
+    query_expansion = tuple(
+        item for item in (search.get("query_expansion") or ()) if isinstance(item, Mapping)
+    )
+    source_names = sorted(
+        {
+            str(source)
+            for article in articles
+            for source in ((article.get("retrieval") or {}).get("sources") or ())
+            if source
+        }
+    )
+    search_trace = {
+        "queries": [str(item.get("query")) for item in query_expansion if item.get("query")],
+        "strategies": [
+            {
+                "strategy": item.get("strategy"),
+                "explanation": item.get("explanation"),
+            }
+            for item in query_expansion
+        ],
+        "sources": source_names,
+        "candidate_count": int(search.get("candidate_count") or 0),
+        "evaluated_count": int((search.get("reranking") or {}).get("evaluated_count") or 0),
+        "accepted_count": int((search.get("reranking") or {}).get("accepted_count") or 0),
+        "rejected_count": int((search.get("reranking") or {}).get("rejected_count") or 0),
+        "assessed_count": assessed_count,
+        "source_failure_count": int(search.get("source_failure_count") or 0),
+    }
+
     return {
         "status": status,
         "headline": headline,
@@ -254,6 +297,7 @@ def build_user_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         },
         "evidence_balance": counts,
         "findings": findings,
+        "search_trace": search_trace,
         "caveats": caveats,
         "next_action": next_action,
     }

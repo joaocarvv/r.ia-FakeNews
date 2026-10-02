@@ -55,7 +55,12 @@ def build_verification_indicators(
     direct = relations["SUPPORTS"] + relations["CONTRADICTS"] + relations["MIXED"]
     full_text_assessed = sum(
         str(item.get("access_level") or "")
-        in {"FULL_TEXT", "OPEN_ACCESS_FULL_TEXT", "LOCAL_PDF_FULL_TEXT"}
+        in {
+            "FULL_TEXT",
+            "OPEN_ACCESS_FULL_TEXT",
+            "LOCAL_PDF_FULL_TEXT",
+            "USER_PROVIDED_FULL_TEXT",
+        }
         for item in assessed_articles
     )
 
