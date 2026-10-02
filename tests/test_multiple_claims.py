@@ -80,6 +80,7 @@ class RecordingEvidenceRunner:
         related_seed_pmids=(),
         seed_doi=None,
         seed_authors=(),
+        **_options,
     ):
         self.calls.append(
             (

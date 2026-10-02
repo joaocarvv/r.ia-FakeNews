@@ -25,6 +25,109 @@ _STUDY_DESIGNS = {
 }
 
 
+_COMPARABILITY = ("DIRECT", "PARTIAL", "INDIRECT")
+_ROB_TOOLS = ("ROB2", "ROBINS_I", "AMSTAR2", "NOT_APPLICABLE")
+_ROB_JUDGMENTS = ("LOW", "SOME_CONCERNS", "HIGH", "CRITICAL", "UNCLEAR")
+_STUDY_ROW_TEXT_LIMITS = {
+    "title_pt": 400,
+    "design_detail": 200,
+    "population": 300,
+    "sample_size": 80,
+    "intervention_or_exposure": 300,
+    "comparator": 300,
+    "outcome": 300,
+    "effect_estimate": 300,
+    "finding_pt": 600,
+    "quote_pt": 600,
+    "comparability_notes": 400,
+    "cohort_or_dataset": 200,
+}
+
+
+def _study_row_schema() -> dict[str, Any]:
+    text = {"type": "STRING"}
+    properties: dict[str, Any] = {name: text for name in _STUDY_ROW_TEXT_LIMITS}
+    properties.update(
+        {
+            "comparability": {"type": "STRING", "enum": list(_COMPARABILITY)},
+            "rob_tool": {"type": "STRING", "enum": list(_ROB_TOOLS)},
+            "rob_overall": {"type": "STRING", "enum": list(_ROB_JUDGMENTS)},
+            "rob_domains": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "domain": text,
+                        "judgment": {"type": "STRING", "enum": list(_ROB_JUDGMENTS)},
+                        "reason": text,
+                    },
+                    "required": ["domain", "judgment", "reason"],
+                },
+            },
+            "registration_ids": {"type": "ARRAY", "items": text},
+        }
+    )
+    return {"type": "OBJECT", "properties": properties, "required": list(properties)}
+
+
+_STUDY_ROW_PROMPT = (
+    "Escreva rationale em português.\n\n"
+    "Para cada documento preencha também study_row, uma linha padronizada de "
+    "tabela de evidências, usando apenas os trechos: title_pt traduz o título "
+    "para português; design_detail descreve o desenho; population, sample_size, "
+    "intervention_or_exposure, comparator e outcome descrevem o estudo em "
+    "português (string vazia se não informado); effect_estimate copia a medida "
+    "de efeito com intervalo de confiança e valor de p quando houver; finding_pt "
+    "resume o resultado principal em português; quote_pt traduz evidence_quote. "
+    "comparability compara o PICO do estudo com o da alegação: DIRECT quando "
+    "população, intervenção/exposição e desfecho coincidem, PARTIAL quando um "
+    "elemento difere, INDIRECT quando dois ou mais diferem ou o estudo é "
+    "pré-clínico; explique em comparability_notes. Avalie risco de viés com a "
+    "ferramenta adequada: ROB2 para ensaios randomizados, ROBINS_I para estudos "
+    "não randomizados de intervenção ou exposição, AMSTAR2 para revisões "
+    "sistemáticas e NOT_APPLICABLE nos demais casos; use UNCLEAR quando os "
+    "trechos não permitirem julgar e nunca invente informação metodológica. "
+    "registration_ids lista registros (NCT, ISRCTN, PROSPERO, ReBEC) citados e "
+    "cohort_or_dataset nomeia coorte ou base de dados reutilizada, se houver."
+)
+
+
+def _clean_text(value: Any, limit: int = 500) -> str:
+    return " ".join(str(value or "").split())[:limit]
+
+
+def _enum(value: Any, allowed: Sequence[str], default: str) -> str:
+    normalized = _clean_text(value).upper()
+    return normalized if normalized in allowed else default
+
+
+def _parse_study_row(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    row: dict[str, Any] = {
+        name: _clean_text(raw.get(name), limit)
+        for name, limit in _STUDY_ROW_TEXT_LIMITS.items()
+    }
+    row["comparability"] = _enum(raw.get("comparability"), _COMPARABILITY, "INDIRECT")
+    row["rob_tool"] = _enum(raw.get("rob_tool"), _ROB_TOOLS, "NOT_APPLICABLE")
+    row["rob_overall"] = _enum(raw.get("rob_overall"), _ROB_JUDGMENTS, "UNCLEAR")
+    row["rob_domains"] = [
+        {
+            "domain": _clean_text(item.get("domain"), 120),
+            "judgment": _enum(item.get("judgment"), _ROB_JUDGMENTS, "UNCLEAR"),
+            "reason": _clean_text(item.get("reason"), 300),
+        }
+        for item in (raw.get("rob_domains") or ())[:8]
+        if isinstance(item, dict) and _clean_text(item.get("domain"))
+    ]
+    row["registration_ids"] = [
+        _clean_text(item, 60)
+        for item in (raw.get("registration_ids") or ())[:5]
+        if _clean_text(item)
+    ]
+    return row
+
+
 class GeminiAnalysisError(RuntimeError):
     """A API não produziu uma análise estruturada utilizável."""
 
@@ -89,6 +192,8 @@ class GeminiEvidenceAssessment:
     evidence_page: int | None = None
     content_scope: str = "ABSTRACT"
     source_url: str | None = None
+    # Linha padronizada (PICO, efeito, comparabilidade, viés, tradução).
+    study_row: Mapping[str, Any] | None = None
 
 
 JsonPoster = Callable[[str, Mapping[str, Any]], Mapping[str, Any]]
@@ -215,6 +320,7 @@ class GeminiEvidenceAnalyzer:
                                 "type": "STRING",
                                 "enum": sorted(_STUDY_DESIGNS),
                             },
+                            "study_row": _study_row_schema(),
                         },
                         "required": [
                             "pmid",
@@ -224,6 +330,7 @@ class GeminiEvidenceAnalyzer:
                             "evidence_quote",
                             "passage_id",
                             "study_design",
+                            "study_row",
                         ],
                     },
                 }
@@ -232,7 +339,11 @@ class GeminiEvidenceAnalyzer:
         }
 
     @staticmethod
-    def _prompt(claim: str, documents: Sequence[EvidenceDocument]) -> str:
+    def _prompt(
+        claim: str,
+        documents: Sequence[EvidenceDocument],
+        claim_profile: Mapping[str, Any] | None = None,
+    ) -> str:
         records = [
             {
                 "pmid": item.pmid,
@@ -263,7 +374,26 @@ class GeminiEvidenceAnalyzer:
             "deve identificar exatamente esse trecho; use strings vazias se não houver "
             "evidência. Priorize Results/Resultados e Conclusion/Conclusão sobre "
             "Introdução. Não conclua que a alegação é verdadeira ou "
-            "falsa.\n\nALEGAÇÃO:\n"
+            "falsa. " + _STUDY_ROW_PROMPT
+            + (
+                "\n\nPICO DA ALEGAÇÃO JSON:\n"
+                + json.dumps(
+                    {
+                        key: claim_profile.get(key)
+                        for key in (
+                            "claim_type",
+                            "population",
+                            "intervention",
+                            "comparator",
+                            "outcome",
+                        )
+                    },
+                    ensure_ascii=False,
+                )
+                if claim_profile
+                else ""
+            )
+            + "\n\nALEGAÇÃO:\n"
             + claim.strip()
             + "\n\nDOCUMENTOS JSON:\n"
             + json.dumps(records, ensure_ascii=False)
@@ -284,6 +414,7 @@ class GeminiEvidenceAnalyzer:
         self,
         claim: str,
         documents: Sequence[EvidenceDocument],
+        claim_profile: Mapping[str, Any] | None = None,
     ) -> tuple[GeminiEvidenceAssessment, ...]:
         if not claim.strip():
             raise ValueError("A alegação não pode estar vazia.")
@@ -300,7 +431,7 @@ class GeminiEvidenceAnalyzer:
         endpoint = f"{GEMINI_API_BASE_URL}/{self.model_name}:generateContent"
         request_payload = {
             "contents": [
-                {"role": "user", "parts": [{"text": self._prompt(claim, documents)}]}
+                {"role": "user", "parts": [{"text": self._prompt(claim, documents, claim_profile)}]}
             ],
             "generationConfig": {
                 "temperature": 0,
@@ -369,5 +500,6 @@ class GeminiEvidenceAnalyzer:
                 evidence_page=passage.page_number if passage else None,
                 content_scope=passage.content_scope if passage else "UNKNOWN",
                 source_url=passage.source_url if passage else by_pmid[pmid].source_url,
+                study_row=_parse_study_row(raw.get("study_row")),
             )
         return tuple(results[item.pmid] for item in documents if item.pmid in results)

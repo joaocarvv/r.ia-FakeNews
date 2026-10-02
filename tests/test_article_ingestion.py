@@ -14,6 +14,7 @@ from fatofake.article_ingestion import (
     ResolvedArticleDocument,
     validate_article_submission,
 )
+from fatofake.gemini_evidence import GeminiAnalysisError, GeminiEvidenceAnalyzer
 
 
 class GatewayStub:
@@ -58,6 +59,7 @@ class EvidenceRunnerStub:
         related_seed_pmids=(),
         seed_doi=None,
         seed_authors=(),
+        **_options,
     ):
         self.calls.append(
             (
@@ -129,6 +131,39 @@ class ArticleIngestionTests(unittest.TestCase):
         self.assertIn("reduces symptoms", extracted.primary_claim)
         parts = gateway.payloads[0]["contents"][0]["parts"]
         self.assertEqual(parts[1]["inlineData"]["mimeType"], "image/png")
+
+    def test_retries_once_when_url_context_returns_empty_candidate(self):
+        class FlakyGateway(GatewayStub):
+            _response_text = staticmethod(GeminiEvidenceAnalyzer._response_text)
+
+            def _post_json(self, url, payload):
+                if not self.payloads:
+                    self.payloads.append(payload)
+                    return {"candidates": [{"finishReason": "OTHER"}]}
+                return super()._post_json(url, payload)
+
+        gateway = FlakyGateway()
+        submission = validate_article_submission({"article_reference": "10.1000/target"})
+
+        extracted = GeminiArticleExtractor(gateway).extract(submission)
+
+        self.assertEqual(len(gateway.payloads), 2)
+        self.assertIn("reduces symptoms", extracted.primary_claim)
+
+    def test_gives_up_after_second_empty_response(self):
+        class EmptyGateway(GatewayStub):
+            _response_text = staticmethod(GeminiEvidenceAnalyzer._response_text)
+
+            def _post_json(self, _url, payload):
+                self.payloads.append(payload)
+                return {"candidates": [{"finishReason": "OTHER"}]}
+
+        gateway = EmptyGateway()
+        submission = validate_article_submission({"article_reference": "10.1000/target"})
+
+        with self.assertRaises(GeminiAnalysisError):
+            GeminiArticleExtractor(gateway).extract(submission)
+        self.assertEqual(len(gateway.payloads), 2)
 
     def test_article_runner_excludes_submitted_doi_from_evidence(self):
         evidence = EvidenceRunnerStub()

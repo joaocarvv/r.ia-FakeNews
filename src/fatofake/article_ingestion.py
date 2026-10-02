@@ -5,13 +5,23 @@ from __future__ import annotations
 import base64
 from difflib import SequenceMatcher
 import json
+import logging
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
 from .article_profile import build_article_dossier
+from .claim_structuring import (
+    CLAIM_PROFILE_INSTRUCTIONS,
+    ClaimProfile,
+    GeminiClaimStructurer,
+    boolean_queries,
+    claim_profile_schema,
+    parse_claim_profile,
+)
 from .crossref import (
     CrossrefClient,
     CrossrefError,
@@ -23,11 +33,17 @@ from .document_parsing import DocumentParsingError, LiteParseDocumentParser, Par
 from .input_validation import DOI_PATTERN, DOI_PREFIX_PATTERN, InputValidationError
 from .pmc import ContentRetrievalError, PmcClient, retrieve_article_content
 from .pubmed import PubMedClient, PubMedError
+from .evidence_table import synthesize_evidence
+from .research_plan import research_estimates
 from .result_presentation import build_user_summary
 from .verification_cards import build_verification_indicators
+from .structured_logging import logged_step
 
 
-MAX_ARTICLE_FILE_BYTES = 10 * 1024 * 1024
+logger = logging.getLogger(__name__)
+
+
+MAX_ARTICLE_FILE_BYTES = 25 * 1024 * 1024
 SUPPORTED_ARTICLE_MIME_TYPES = {
     "application/pdf",
     "image/jpeg",
@@ -57,6 +73,8 @@ class ExtractedClaim:
     quote: str | None = None
     section: str | None = None
     page: int | None = None
+    profile: ClaimProfile | None = None
+    edited: bool = False
 
 
 @dataclass(frozen=True)
@@ -94,8 +112,212 @@ class ResolvedArticleDocument:
     identity_verification: IdentityVerification | None = None
 
 
+@dataclass(frozen=True)
+class PreparedArticle:
+    """Snapshot serializável produzido antes da escolha humana das alegações."""
+
+    submission: ArticleSubmission
+    resolved: ResolvedArticleDocument | None
+    extracted: ExtractedArticle
+    dossier: Mapping[str, Any]
+    whole_article_analysis: Mapping[str, Any] | None
+
+    def to_workflow_payload(self) -> dict[str, Any]:
+        resolved = self.resolved
+        return {
+            "version": 1,
+            "submission": {
+                "reference": self.submission.reference,
+                "reference_type": self.submission.reference_type,
+                "file_name": self.submission.file_name,
+                "mime_type": self.submission.mime_type,
+            },
+            "resolved": None if resolved is None else {
+                "title": resolved.title,
+                "doi": resolved.doi,
+                "text": resolved.text,
+                "pmid": resolved.pmid,
+                "parser_name": resolved.parser_name,
+                "page_count": resolved.page_count,
+                "pages": [
+                    {"page_number": item.page_number, "text": item.text}
+                    for item in resolved.pages
+                ],
+                "sections": [list(item) for item in resolved.sections],
+                "content_scope": resolved.content_scope,
+                "authors": list(resolved.authors),
+                "journal": resolved.journal,
+                "publication_date": resolved.publication_date,
+                "publication_types": list(resolved.publication_types),
+                "source_url": resolved.source_url,
+            },
+            "extracted": {
+                "title": self.extracted.title,
+                "doi": self.extracted.doi,
+                "primary_claim": self.extracted.primary_claim,
+                "search_query": self.extracted.search_query,
+                "additional_claims": list(self.extracted.additional_claims),
+                "absolute_language": list(self.extracted.absolute_language),
+                "extraction_model": self.extracted.extraction_model,
+                "claims": [
+                    {
+                        "claim_id": claim.claim_id,
+                        "text": claim.text,
+                        "search_query": claim.search_query,
+                        "quote": claim.quote,
+                        "section": claim.section,
+                        "page": claim.page,
+                        "profile": claim.profile.to_payload() if claim.profile else None,
+                    }
+                    for claim in self.extracted.claims
+                ],
+                "primary_claim_quote": self.extracted.primary_claim_quote,
+                "research_context": self.extracted.research_context,
+                "primary_claim_section": self.extracted.primary_claim_section,
+                "primary_claim_page": self.extracted.primary_claim_page,
+            },
+            "dossier": dict(self.dossier),
+            "whole_article_analysis": (
+                dict(self.whole_article_analysis)
+                if self.whole_article_analysis is not None
+                else None
+            ),
+        }
+
+    @classmethod
+    def from_workflow_payload(cls, payload: Mapping[str, Any]) -> "PreparedArticle":
+        submission_data = payload["submission"]
+        extracted_data = payload["extracted"]
+        resolved_data = payload.get("resolved")
+        submission = ArticleSubmission(
+            reference=submission_data.get("reference"),
+            reference_type=submission_data.get("reference_type"),
+            file_name=submission_data.get("file_name"),
+            mime_type=submission_data.get("mime_type"),
+            content=None,
+        )
+        resolved = None
+        if resolved_data is not None:
+            resolved = ResolvedArticleDocument(
+                title=resolved_data.get("title"),
+                doi=resolved_data.get("doi"),
+                text=resolved_data.get("text") or "",
+                pmid=resolved_data.get("pmid"),
+                parser_name=resolved_data.get("parser_name") or "persisted",
+                page_count=resolved_data.get("page_count"),
+                pages=tuple(
+                    ParsedPage(item["page_number"], item["text"])
+                    for item in resolved_data.get("pages") or ()
+                ),
+                sections=tuple(
+                    (str(item[0]), str(item[1]))
+                    for item in resolved_data.get("sections") or ()
+                ),
+                content_scope=resolved_data.get("content_scope") or "UNKNOWN",
+                authors=tuple(resolved_data.get("authors") or ()),
+                journal=resolved_data.get("journal"),
+                publication_date=resolved_data.get("publication_date"),
+                publication_types=tuple(resolved_data.get("publication_types") or ()),
+                source_url=resolved_data.get("source_url"),
+            )
+        claims = tuple(
+            ExtractedClaim(
+                claim_id=item["claim_id"],
+                text=item["text"],
+                search_query=item.get("search_query") or item["text"],
+                quote=item.get("quote"),
+                section=item.get("section"),
+                page=item.get("page"),
+                profile=ClaimProfile.from_payload(item.get("profile")),
+            )
+            for item in extracted_data.get("claims") or ()
+        )
+        extracted = ExtractedArticle(
+            title=extracted_data.get("title"),
+            doi=extracted_data.get("doi"),
+            primary_claim=extracted_data["primary_claim"],
+            search_query=extracted_data.get("search_query") or extracted_data["primary_claim"],
+            additional_claims=tuple(extracted_data.get("additional_claims") or ()),
+            absolute_language=tuple(extracted_data.get("absolute_language") or ()),
+            extraction_model=extracted_data.get("extraction_model") or "persisted",
+            claims=claims,
+            primary_claim_quote=extracted_data.get("primary_claim_quote"),
+            research_context=extracted_data.get("research_context") or "UNKNOWN",
+            primary_claim_section=extracted_data.get("primary_claim_section"),
+            primary_claim_page=extracted_data.get("primary_claim_page"),
+        )
+        return cls(
+            submission=submission,
+            resolved=resolved,
+            extracted=extracted,
+            dossier=dict(payload.get("dossier") or {}),
+            whole_article_analysis=payload.get("whole_article_analysis"),
+        )
+
+
 class ArticleIngestionError(RuntimeError):
     """O artigo não pôde ser lido de forma confiável."""
+
+
+class OpenAccessArticleResolver:
+    """Obtém o texto integral aberto do artigo enviado quando o PubMed não o tem.
+
+    Evita depender da leitura indireta por URL do modelo, que não permite
+    verificar citações nem garantir que o artigo inteiro foi lido.
+    """
+
+    def __init__(self, locator: Any, content_client: Any) -> None:
+        self.locator = locator
+        self.content_client = content_client
+
+    def resolve(self, submission: ArticleSubmission) -> ResolvedArticleDocument | None:
+        if not submission.reference or submission.reference_type == "pmid":
+            return None
+        doi = submission.reference if submission.reference_type == "doi" else None
+        known_url = submission.reference if submission.reference.startswith("https://") else None
+        lead = self.locator.locate(doi, known_url=known_url)
+        candidates = list(lead.candidates)
+        if doi and not candidates:
+            from .full_text_sources import FullTextCandidate
+
+            # A página do DOI costuma ser a cópia aberta em periódicos como o SciELO.
+            candidates.append(FullTextCandidate(f"https://doi.org/{doi}", "DOI", False))
+        for candidate in candidates[:4]:
+            try:
+                content = self.content_client.retrieve(
+                    pmid=doi or submission.reference,
+                    pmcid=lead.pmcid,
+                    doi=doi,
+                    pubmed_url=candidate.url,
+                    full_text_url=candidate.url,
+                    abstract=lead.abstract,
+                )
+            except Exception as error:  # cada fonte falha de um jeito diferente
+                logger.info("Cópia aberta do artigo indisponível em %s: %s", candidate.source, error)
+                continue
+            if not content.full_text:
+                continue
+            pages = tuple(
+                ParsedPage(section.page_number, section.text)
+                for section in content.sections
+                if section.page_number is not None
+            )
+            return ResolvedArticleDocument(
+                title=None,
+                doi=doi,
+                text=content.full_text,
+                parser_name=f"open-access:{candidate.source}",
+                page_count=len(pages) or None,
+                pages=pages,
+                sections=tuple(
+                    (section.title, section.text)
+                    for section in content.sections
+                    if section.page_number is None
+                ),
+                content_scope="OPEN_ACCESS_FULL_TEXT",
+                source_url=content.pmc_url or candidate.url,
+            )
+        return None
 
 
 class PubMedReferenceResolver:
@@ -130,9 +352,9 @@ class PubMedReferenceResolver:
                     max_results=1,
                 )
             except PubMedError as error:
-                raise ArticleIngestionError(
-                    "Não foi possível resolver o DOI no PubMed."
-                ) from error
+                # Sem o PubMed, as fontes abertas ainda podem fornecer o artigo.
+                logger.warning("PubMed indisponível ao resolver o DOI: %s", error)
+                return None
             pmid = identifiers[0] if identifiers else None
         if pmid is None:
             return None
@@ -144,6 +366,9 @@ class PubMedReferenceResolver:
                 )
             content = retrieve_article_content(publications[0], self.pmc_client)
         except (PubMedError, ContentRetrievalError) as error:
+            if submission.reference_type == "doi":
+                logger.warning("PubMed/PMC indisponível para o PMID %s: %s", pmid, error)
+                return None
             raise ArticleIngestionError(
                 f"Não foi possível recuperar o conteúdo do PMID {pmid}."
             ) from error
@@ -243,7 +468,7 @@ def validate_article_submission(payload: Mapping[str, Any]) -> ArticleSubmission
     if not content:
         raise InputValidationError("O arquivo enviado está vazio.")
     if len(content) > MAX_ARTICLE_FILE_BYTES:
-        raise InputValidationError("O arquivo deve ter no máximo 10 MB.")
+        raise InputValidationError("O arquivo deve ter no máximo 25 MB.")
     return ArticleSubmission(None, None, name, mime_type, content)
 
 
@@ -261,8 +486,9 @@ class GeminiArticleExtractor:
                 "text": {"type": "STRING"},
                 "quote": {"type": "STRING"},
                 "search_query": {"type": "STRING"},
+                **claim_profile_schema(),
             },
-            "required": ["text", "quote", "search_query"],
+            "required": ["text", "quote", "search_query", *claim_profile_schema()],
         }
         return {
             "type": "OBJECT",
@@ -356,6 +582,13 @@ class GeminiArticleExtractor:
         prompt = (
             "Leia o artigo fornecido e extraia de uma a quatro alegações científicas "
             "atômicas e verificáveis, em ordem de importância. Não julgue se são verdadeiras. "
+            "Escreva text, primary_claim e additional_claims em português do Brasil mesmo "
+            "quando o artigo estiver em outro idioma; quote continua literal no idioma "
+            "original. "
+            "Inclua obrigatoriamente a conclusão ou interpretação central dos autores, "
+            "inclusive associações causais apenas sugeridas na discussão (por exemplo, a "
+            "ligação temporal com uma vacina, droga ou exposição), porque costuma ser a "
+            "alegação de maior repercussão pública; dê a ela importance HIGH. "
             "Separe relações diferentes: cada alegação deve expressar apenas uma relação "
             "entre exposição/intervenção e desfecho, mecanismo ou fenômeno. Não junte numa "
             "mesma frase resultados que exigiriam buscas diferentes. Para cada item de claims, "
@@ -367,7 +600,8 @@ class GeminiArticleExtractor:
             "científico. Em absolute_language, copie "
             "expressões absolutas realmente presentes no documento. Use strings vazias "
             "quando título ou DOI não estiverem disponíveis. Classifique research_context conforme "
-            "o desenho do artigo; BASIC_SCIENCE não deve ser tratado como ensaio clínico."
+            "o desenho do artigo; BASIC_SCIENCE não deve ser tratado como ensaio clínico. "
+            + CLAIM_PROFILE_INSTRUCTIONS
         )
         parts: list[dict[str, Any]] = [{"text": prompt}]
         payload: dict[str, Any] = {
@@ -401,9 +635,23 @@ class GeminiArticleExtractor:
             "https://generativelanguage.googleapis.com/v1beta/models/"
             f"{self.gateway.model_name}:generateContent"
         )
-        response = self.gateway._post_json(endpoint, payload)
+        # Com url_context o Gemini às vezes devolve candidato sem partes; repetir costuma bastar.
+        for attempt in range(2):
+            response = self.gateway._post_json(endpoint, payload)
+            try:
+                response_text = self.gateway._response_text(response)
+                break
+            except GeminiAnalysisError as error:
+                if attempt == 1 and "tools" in payload:
+                    raise GeminiAnalysisError(
+                        "Não foi possível ler o artigo pelo link e nenhuma cópia aberta foi "
+                        "encontrada. Envie o PDF para uma leitura integral."
+                    ) from error
+                if attempt == 1:
+                    raise
+                logger.warning("Resposta Gemini vazia na extração de alegações; repetindo.")
         try:
-            decoded = json.loads(self.gateway._response_text(response))
+            decoded = json.loads(response_text)
             primary_claim = " ".join(str(decoded["primary_claim"]).split())
             search_query = " ".join(str(decoded["search_query"]).split())
         except (KeyError, TypeError, json.JSONDecodeError) as error:
@@ -453,6 +701,11 @@ class GeminiArticleExtractor:
                     quote=quote,
                     section=section,
                     page=page,
+                    profile=(
+                        parse_claim_profile(raw_claim)
+                        if raw_claim.get("concept_groups") or raw_claim.get("claim_type")
+                        else None
+                    ),
                 )
             )
             if len(claims) == 4:
@@ -514,6 +767,17 @@ class IndependentEvidenceRunner(Protocol):
         related_seed_pmids: tuple[str, ...] = (),
         seed_doi: str | None = None,
         seed_authors: tuple[str, ...] = (),
+        search_queries: tuple[str, ...] = (),
+        depth: str = "QUICK",
+        claim_profile: Mapping[str, Any] | None = None,
+    ) -> Mapping[str, Any]: ...
+
+
+class WholeArticleAnalyzer(Protocol):
+    def analyze(
+        self,
+        submission: ArticleSubmission,
+        resolved: ResolvedArticleDocument | None,
     ) -> Mapping[str, Any]: ...
 
 
@@ -526,11 +790,47 @@ class ArticleFirstAnalysisRunner:
         evidence_runner: IndependentEvidenceRunner,
         reference_resolver: PubMedReferenceResolver | None = None,
         document_parser: LiteParseDocumentParser | None = None,
+        whole_article_analyzer: WholeArticleAnalyzer | None = None,
+        claim_structurer: GeminiClaimStructurer | None = None,
+        open_access_resolver: OpenAccessArticleResolver | None = None,
     ) -> None:
         self.extractor = extractor
         self.evidence_runner = evidence_runner
         self.reference_resolver = reference_resolver
         self.document_parser = document_parser
+        self.whole_article_analyzer = whole_article_analyzer
+        self.claim_structurer = claim_structurer
+        self.open_access_resolver = open_access_resolver
+
+    @staticmethod
+    def _submitted_population(whole_article_analysis: Mapping[str, Any] | None) -> list[str]:
+        study = (whole_article_analysis or {}).get("study") or {}
+        values = [*(study.get("registration_ids") or ()), study.get("cohort_or_dataset") or ""]
+        return [
+            " ".join(str(value).split())
+            for value in values
+            if str(value).strip() and str(value).strip().casefold() != "não informado"
+        ]
+
+    def _restructure_edited(
+        self,
+        claim: ExtractedClaim,
+        extracted: ExtractedArticle,
+    ) -> ExtractedClaim:
+        """Texto editado invalida PICO e conceitos extraídos; refaz antes da busca."""
+
+        if not claim.edited or self.claim_structurer is None:
+            return claim
+        try:
+            with logged_step(logger, "claim_restructuring", claim_id=claim.claim_id):
+                profile = self.claim_structurer.structure(
+                    claim.text,
+                    context=extracted.title or "",
+                )
+        except GeminiAnalysisError as error:
+            logger.warning("Reestruturação da alegação editada falhou: %s", error)
+            return replace(claim, profile=None)
+        return replace(claim, profile=profile)
 
     @staticmethod
     def _claim_payload(claim: ExtractedClaim) -> dict[str, Any]:
@@ -541,6 +841,8 @@ class ArticleFirstAnalysisRunner:
             "quote": claim.quote,
             "section": claim.section,
             "page": claim.page,
+            "edited": claim.edited,
+            "profile": claim.profile.to_payload() if claim.profile else None,
         }
 
     @classmethod
@@ -691,12 +993,27 @@ class ArticleFirstAnalysisRunner:
         result["user_summary"] = build_user_summary(result)
         return result
 
-    def analyze_article(self, submission: ArticleSubmission) -> Mapping[str, Any]:
-        resolved = (
-            self.reference_resolver.resolve(submission)
-            if self.reference_resolver is not None
-            else None
-        )
+    def prepare_article(self, submission: ArticleSubmission) -> PreparedArticle:
+        with logged_step(
+            logger,
+            "article_resolution",
+            source_type=submission.reference_type or submission.mime_type,
+        ) as step:
+            resolved = (
+                self.reference_resolver.resolve(submission)
+                if self.reference_resolver is not None
+                else None
+            )
+            step["resolved"] = resolved is not None
+        if resolved is None and self.open_access_resolver is not None:
+            with logged_step(logger, "open_access_article_resolution") as step:
+                try:
+                    resolved = self.open_access_resolver.resolve(submission)
+                except Exception as error:
+                    logger.warning("Resolução aberta do artigo falhou: %s", error)
+                    resolved = None
+                step["resolved"] = resolved is not None
+                step["parser"] = resolved.parser_name if resolved else None
         if (
             resolved is None
             and submission.mime_type == "application/pdf"
@@ -704,7 +1021,10 @@ class ArticleFirstAnalysisRunner:
             and self.document_parser is not None
         ):
             try:
-                parsed = self.document_parser.parse_pdf(submission.content)
+                with logged_step(logger, "document_parsing") as step:
+                    parsed = self.document_parser.parse_pdf(submission.content)
+                    step["page_count"] = parsed.page_count
+                    step["parser"] = parsed.parser_name
             except DocumentParsingError as error:
                 raise ArticleIngestionError(str(error)) from error
             resolved = ResolvedArticleDocument(
@@ -716,24 +1036,74 @@ class ArticleFirstAnalysisRunner:
                 pages=tuple(getattr(parsed, "pages", ()) or ()),
                 content_scope="LOCAL_PDF_FULL_TEXT",
             )
-        extracted = self.extractor.extract(submission, resolved)
-        dossier = build_article_dossier(
-            title=extracted.title,
-            doi=extracted.doi,
-            pmid=resolved.pmid if resolved else None,
-            authors=resolved.authors if resolved else (),
-            journal=resolved.journal if resolved else None,
-            publication_date=resolved.publication_date if resolved else None,
-            publication_types=resolved.publication_types if resolved else (),
-            text=resolved.text if resolved else "",
-            sections=resolved.sections if resolved else (),
-            identity=resolved.identity_verification if resolved else None,
-            llm_context=extracted.research_context,
-            absolute_language=extracted.absolute_language,
-            source_url=(resolved.source_url if resolved else submission.reference),
+        with logged_step(logger, "claim_extraction") as step:
+            extracted = self.extractor.extract(submission, resolved)
+            step["claim_count"] = len(extracted.claims) or 1
+            step["research_context"] = extracted.research_context
+        with logged_step(logger, "article_dossier") as step:
+            dossier = build_article_dossier(
+                title=extracted.title,
+                doi=extracted.doi,
+                pmid=resolved.pmid if resolved else None,
+                authors=resolved.authors if resolved else (),
+                journal=resolved.journal if resolved else None,
+                publication_date=resolved.publication_date if resolved else None,
+                publication_types=resolved.publication_types if resolved else (),
+                text=resolved.text if resolved else "",
+                sections=resolved.sections if resolved else (),
+                identity=resolved.identity_verification if resolved else None,
+                llm_context=extracted.research_context,
+                absolute_language=extracted.absolute_language,
+                source_url=(resolved.source_url if resolved else submission.reference),
+            )
+            step["identity_status"] = dossier["identity"]["status"]
+            step["retraction_status"] = dossier["editorial_status"]["retraction"]
+        whole_article_analysis: Mapping[str, Any] | None = None
+        if self.whole_article_analyzer is not None:
+            try:
+                with logged_step(logger, "whole_article_analysis") as step:
+                    whole_article_analysis = self.whole_article_analyzer.analyze(
+                        submission, resolved
+                    )
+                    coverage = whole_article_analysis.get("coverage") or {}
+                    step["full_article_available"] = coverage.get(
+                        "full_article_available"
+                    )
+                    step["section_coverage_percentage"] = coverage.get(
+                        "section_coverage_percentage"
+                    )
+            except Exception as error:
+                logger.warning(
+                    "Dossiê integral indisponível: %s",
+                    error,
+                    exc_info=True,
+                )
+                whole_article_analysis = {
+                    "status": "UNAVAILABLE",
+                    "error": str(error),
+                    "coverage": {
+                        "content_scope": (
+                            resolved.content_scope if resolved else "URL_CONTEXT_UNVERIFIED"
+                        ),
+                        "full_article_available": bool(
+                            resolved
+                            and resolved.content_scope
+                            in {"FULL_TEXT", "OPEN_ACCESS_FULL_TEXT", "LOCAL_PDF_FULL_TEXT"}
+                        ),
+                        "page_count": resolved.page_count if resolved else None,
+                    },
+                }
+        return PreparedArticle(
+            submission=submission,
+            resolved=resolved,
+            extracted=extracted,
+            dossier=dossier,
+            whole_article_analysis=whole_article_analysis,
         )
-        excluded = (extracted.doi,) if extracted.doi else ()
-        claims = extracted.claims or (
+
+    @staticmethod
+    def _claims_for(extracted: ExtractedArticle) -> tuple[ExtractedClaim, ...]:
+        return extracted.claims or (
             ExtractedClaim(
                 claim_id="claim-01",
                 text=extracted.primary_claim,
@@ -743,28 +1113,120 @@ class ArticleFirstAnalysisRunner:
                 page=extracted.primary_claim_page,
             ),
         )
+
+    def preparation_result(self, prepared: PreparedArticle) -> dict[str, Any]:
+        claims = self._claims_for(prepared.extracted)
+        result: dict[str, Any] = {
+            "workflow": {
+                "stage": "CLAIM_SELECTION",
+                "message": (
+                    "Revise, edite e selecione as alegações que devem ser "
+                    "comparadas com evidência externa."
+                ),
+            },
+            "input": {
+                "type": "article",
+                "source": prepared.submission.label,
+                "source_type": (
+                    prepared.submission.reference_type or prepared.submission.mime_type
+                ),
+            },
+            "submitted_article": self._submitted_article_payload(
+                extracted=prepared.extracted,
+                active_claim=claims[0],
+                submission=prepared.submission,
+                resolved=prepared.resolved,
+                include_all_claims=True,
+            ),
+            "article_dossier": dict(prepared.dossier),
+            "research_estimates": research_estimates(
+                getattr(getattr(self.extractor, "gateway", None), "model_name", None)
+            ),
+        }
+        # O fallback criado por _claims_for também precisa aparecer para seleção.
+        result["submitted_article"]["claims"] = [
+            self._claim_payload(claim) for claim in claims
+        ]
+        if prepared.whole_article_analysis is not None:
+            result["whole_article_analysis"] = dict(prepared.whole_article_analysis)
+        return result
+
+    def analyze_prepared(
+        self,
+        prepared: PreparedArticle,
+        selected_claims: tuple[ExtractedClaim, ...] | None = None,
+        depth: str = "QUICK",
+    ) -> Mapping[str, Any]:
+        submission = prepared.submission
+        resolved = prepared.resolved
+        extracted = prepared.extracted
+        dossier = prepared.dossier
+        whole_article_analysis = prepared.whole_article_analysis
+        excluded = (extracted.doi,) if extracted.doi else ()
+        claims = tuple(
+            self._restructure_edited(claim, extracted)
+            for claim in (selected_claims or self._claims_for(extracted))
+        )
         claim_analyses: list[dict[str, Any]] = []
         for claim in claims:
-            claim_result = dict(
-                self.evidence_runner.analyze(
-                    claim.text,
-                    None,
-                    excluded_dois=excluded,
-                    query_override=claim.search_query,
-                    related_seed_pmids=(
-                        (resolved.pmid,) if resolved and resolved.pmid else ()
-                    ),
-                    seed_doi=extracted.doi,
-                    seed_authors=resolved.authors if resolved else (),
+            search_queries = (
+                boolean_queries(claim.profile.concept_groups) if claim.profile else ()
+            )
+            with logged_step(
+                logger,
+                "independent_evidence",
+                claim_id=claim.claim_id,
+            ) as step:
+                claim_result = dict(
+                    self.evidence_runner.analyze(
+                        claim.text,
+                        None,
+                        excluded_dois=excluded,
+                        query_override=claim.search_query,
+                        related_seed_pmids=(
+                            (resolved.pmid,) if resolved and resolved.pmid else ()
+                        ),
+                        seed_doi=extracted.doi,
+                        seed_authors=resolved.authors if resolved else (),
+                        search_queries=search_queries,
+                        depth=depth,
+                        claim_profile=(
+                            claim.profile.to_payload() if claim.profile else None
+                        ),
+                    )
                 )
-            )
-            claim_result = self._enrich_claim_result(
-                result=claim_result,
-                extracted=extracted,
-                active_claim=claim,
-                submission=submission,
-                resolved=resolved,
-            )
+                step["article_count"] = len(claim_result.get("articles") or ())
+            submitted_population = self._submitted_population(whole_article_analysis)
+            if submitted_population and claim_result.get("weighted_evidence") is not None:
+                reproducibility = dict(claim_result.get("reproducibility") or {})
+                reproducibility["submitted_population"] = submitted_population
+                claim_result["reproducibility"] = reproducibility
+                claim_result["weighted_evidence"] = synthesize_evidence(
+                    claim_result.get("articles") or (),
+                    candidate_count=(claim_result.get("search") or {}).get("candidate_count", 0),
+                    claim_profile=reproducibility.get("claim_profile"),
+                    submitted_population=submitted_population,
+                    queries=reproducibility.get("queries") or (),
+                    sources=list(
+                        dict.fromkeys(
+                            source
+                            for article in claim_result.get("articles") or ()
+                            for source in (article.get("retrieval") or {}).get("sources") or ()
+                        )
+                    ),
+                )
+            with logged_step(
+                logger,
+                "result_enrichment",
+                claim_id=claim.claim_id,
+            ):
+                claim_result = self._enrich_claim_result(
+                    result=claim_result,
+                    extracted=extracted,
+                    active_claim=claim,
+                    submission=submission,
+                    resolved=resolved,
+                )
             claim_result["article_dossier"] = dossier
             dossier_alerts: list[dict[str, Any]] = []
             if dossier["editorial_status"]["retraction"] == "RETRACTED":
@@ -817,5 +1279,23 @@ class ArticleFirstAnalysisRunner:
         )
         result["claim_analyses"] = claim_analyses
         result["article_dossier"] = dossier
+        result["reproducibility"] = {
+            "executed_at": datetime.now(timezone.utc).isoformat(),
+            "depth": depth,
+            "extraction_model": extracted.extraction_model,
+            "dossier_model": (whole_article_analysis or {}).get("model_name"),
+            "content_scope": resolved.content_scope if resolved else "URL_CONTEXT_UNVERIFIED",
+            "parser": resolved.parser_name if resolved else None,
+            "selected_claims": [claim.claim_id for claim in claims],
+            "edited_claims": [claim.claim_id for claim in claims if claim.edited],
+        }
+        if whole_article_analysis is not None:
+            result["whole_article_analysis"] = dict(whole_article_analysis)
         result["user_summary"] = build_user_summary(result)
         return result
+
+    def analyze_article(self, submission: ArticleSubmission) -> Mapping[str, Any]:
+        """Compatibilidade: executa o fluxo completo quando não há etapa humana."""
+
+        prepared = self.prepare_article(submission)
+        return self.analyze_prepared(prepared)
