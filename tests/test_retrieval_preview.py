@@ -11,9 +11,11 @@ from fatofake import (
     RetrievalError,
     ScientificWork,
     SourceRank,
+    Publication,
 )
 from fatofake.retrieval_preview import GenericHealthQueryPlanner, RetrievalPreviewRunner
 from fatofake.gemini_evidence import GeminiEvidenceAssessment
+from fatofake.pmc import ContentSection
 
 
 class ProviderStub:
@@ -43,6 +45,48 @@ class ProviderStub:
 
 
 class RetrievalPreviewTests(unittest.TestCase):
+    def test_expands_a_submitted_pubmed_article_with_related_records(self):
+        class RelatedClientStub:
+            def related_ids(self, pmid, *, max_results):
+                self.seed = pmid
+                return ("32596956",)
+
+            def fetch_summaries(self, identifiers, matched_queries):
+                return (
+                    Publication(
+                        pmid="32596956",
+                        title="Activation of rhodopsin by water",
+                        authors=("Author",),
+                        journal="Journal",
+                        publication_date="2020",
+                        doi="10.1000/related",
+                        url="https://pubmed.ncbi.nlm.nih.gov/32596956/",
+                        matched_queries=matched_queries["32596956"],
+                    ),
+                )
+
+        related = RelatedClientStub()
+        runner = RetrievalPreviewRunner(
+            FederatedSearchEngine((ProviderStub("PubMed"),)),
+            related_client=related,
+        )
+
+        result = runner.analyze(
+            "Water affects rhodopsin activation.",
+            related_seed_pmids=("39550612",),
+        )
+
+        self.assertEqual(related.seed, "39550612")
+        self.assertTrue(
+            any(
+                item["source"] == "PubMed relacionados"
+                for item in result["search"]["query_results"]
+            )
+        )
+        self.assertTrue(
+            any(item["pmid"] == "32596956" for item in result["articles"])
+        )
+
     def test_planner_accepts_different_health_topics(self):
         class TranslatorStub:
             def translate(self, text):
@@ -154,13 +198,80 @@ class RetrievalPreviewTests(unittest.TestCase):
         self.assertEqual(result["articles"][0]["assessments"][0]["relation"], "SUPPORTS")
         self.assertEqual(
             result["verification"]["partial_verification"]["percentage"],
-            50,
+            round(100 / len(result["articles"])),
         )
         self.assertEqual(
             result["verification"]["meta_analysis"]["compatibility_percentage"],
             100,
         )
+        self.assertEqual(
+            result["user_summary"]["status"], "PREDOMINANTLY_COMPATIBLE"
+        )
+        self.assertIn("compatibilidade preliminar", result["user_summary"]["headline"].casefold())
         self.assertNotIn("verdadeir", str(result).casefold())
+
+    def test_prioritizes_results_from_full_text_and_exposes_provenance(self):
+        class FullTextClientStub:
+            def fetch_pubmed_abstract(self, _pmid):
+                return "The abstract mentions symptoms without an estimate."
+
+            def resolve_pmcid(self, _pmid):
+                return "PMC123"
+
+            def fetch_pmc_full_text(self, _pmcid):
+                sections = (
+                    ContentSection("Introduction", "Symptoms are common in adults."),
+                    ContentSection(
+                        "Results",
+                        "The intervention reduced symptoms by 18 percent in adults.",
+                    ),
+                    ContentSection(
+                        "Conclusion",
+                        "The intervention was associated with fewer symptoms.",
+                    ),
+                )
+                return " ".join(section.text for section in sections), sections
+
+        class CapturingAnalyzer:
+            def analyze(self, _claim, documents):
+                self.document = documents[0]
+                passage = next(
+                    item for item in self.document.passages if item.section == "Results"
+                )
+                return (GeminiEvidenceAssessment(
+                    pmid=self.document.pmid,
+                    relation="SUPPORTS",
+                    confidence=0.9,
+                    rationale="The results report a compatible estimate.",
+                    evidence_quote="The intervention reduced symptoms by 18 percent in adults.",
+                    study_design="RANDOMIZED_CLINICAL_TRIAL",
+                    model_name="controlled-gemini",
+                    passage_id=passage.passage_id,
+                    evidence_section=passage.section,
+                    evidence_page=passage.page_number,
+                    content_scope=passage.content_scope,
+                    source_url=passage.source_url,
+                ),)
+
+        analyzer = CapturingAnalyzer()
+        runner = RetrievalPreviewRunner(
+            FederatedSearchEngine((ProviderStub("PubMed"),)),
+            abstract_client=FullTextClientStub(),
+            evidence_analyzer=analyzer,
+        )
+
+        result = runner.analyze("The intervention reduces symptoms in adults.")
+
+        article = result["articles"][0]
+        evidence = article["assessments"][0]["evidence"]
+        self.assertEqual(article["access_level"], "FULL_TEXT")
+        self.assertEqual(evidence["section"], "Results")
+        self.assertIsNone(evidence["page"])
+        self.assertEqual(evidence["content_scope"], "FULL_TEXT")
+        self.assertEqual(
+            result["verification"]["partial_verification"]["full_text_percentage"],
+            100,
+        )
 
 
 if __name__ == "__main__":

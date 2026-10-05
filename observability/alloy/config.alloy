@@ -1,0 +1,58 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+loki.source.file "fatofake" {
+  targets = [
+    {
+      __path__ = "/var/log/fatofake/*.jsonl*",
+      job      = "fatofake",
+      service  = "fatofake",
+    },
+  ]
+  forward_to   = [loki.process.fatofake.receiver]
+  tail_from_end = false
+
+  file_match {
+    enabled     = true
+    sync_period = "5s"
+  }
+}
+
+loki.process "fatofake" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.json {
+    expressions = {
+      timestamp   = "timestamp",
+      level       = "level",
+      environment = "environment",
+      event       = "event",
+      stage       = "stage",
+      status      = "status",
+    }
+    drop_malformed = false
+  }
+
+  stage.timestamp {
+    source = "timestamp"
+    format = "RFC3339"
+  }
+
+  stage.labels {
+    values = {
+      level       = "",
+      environment = "",
+      event       = "",
+      stage       = "",
+      status      = "",
+    }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

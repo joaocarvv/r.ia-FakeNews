@@ -55,6 +55,10 @@ class ScientificWork:
     source_ids: tuple[tuple[str, str], ...]
     source_ranks: tuple[SourceRank, ...]
     retrieval_score: float = 0.0
+    citation_count: int | None = None
+    related_work_count: int | None = None
+    full_text_url: str | None = None
+    publication_types: tuple[str, ...] = ()
 
     def to_publication(self) -> Publication | None:
         """Converte apenas trabalhos vinculados ao PubMed para o fluxo atual."""
@@ -71,6 +75,7 @@ class ScientificWork:
             url=f"https://pubmed.ncbi.nlm.nih.gov/{self.pmid}/",
             matched_queries=self.matched_queries,
             source=", ".join(self.sources),
+            publication_types=self.publication_types,
         )
 
 
@@ -267,6 +272,30 @@ def deduplicate_works(
                     source_ids=source_ids,
                     source_ranks=source_ranks,
                     retrieval_score=score,
+                    citation_count=max(
+                        (
+                            record.citation_count
+                            for record in records
+                            if record.citation_count is not None
+                        ),
+                        default=None,
+                    ),
+                    related_work_count=max(
+                        (
+                            record.related_work_count
+                            for record in records
+                            if record.related_work_count is not None
+                        ),
+                        default=None,
+                    ),
+                    full_text_url=_first_nonempty(records, "full_text_url"),
+                    publication_types=tuple(
+                        dict.fromkeys(
+                            item
+                            for record in records
+                            for item in record.publication_types
+                        )
+                    ),
                 ),
             )
         )
@@ -275,8 +304,18 @@ def deduplicate_works(
     return tuple(work for _, work in merged)
 
 
+_PUBMED_TAG_PATTERN = re.compile(r"\[(filter|sb|mesh[^\]]*|tiab|pt|majr)\]", re.IGNORECASE)
+
+
+def uses_pubmed_syntax(query: str) -> bool:
+    """Consultas com tags do PubMed não fazem sentido em outras fontes."""
+
+    return bool(_PUBMED_TAG_PATTERN.search(query))
+
+
 class PubMedSearchProvider:
     name = "PubMed"
+    pubmed_syntax = True
 
     def __init__(self, client: PubMedClient) -> None:
         self.client = client
@@ -298,6 +337,7 @@ class PubMedSearchProvider:
                 sources=(self.name,),
                 source_ids=((self.name, item.pmid),),
                 source_ranks=(SourceRank(self.name, query, rank),),
+                publication_types=item.publication_types,
             )
             for rank, item in enumerate(publications, start=1)
         )
@@ -379,7 +419,7 @@ class OpenAlexClient:
         params = {
             "search": query,
             "per_page": str(max_results),
-            "sort": "-relevance_score",
+            "sort": "relevance_score:desc",
         }
         if source_filter:
             params["filter"] = source_filter
@@ -397,6 +437,36 @@ class OpenAlexClient:
             raise RetrievalError("Contagem do OpenAlex inválida.") from error
         results = tuple(item for item in raw_results if isinstance(item, Mapping))
         return total, results
+
+    def filter_works(
+        self,
+        filter_value: str,
+        *,
+        max_results: int,
+        sort: str | None = None,
+    ) -> tuple[int, tuple[Mapping[str, Any], ...]]:
+        """Consulta relações do grafo sem converter o filtro em busca textual."""
+
+        if not filter_value.strip():
+            raise ValueError("O filtro do OpenAlex não pode ser vazio.")
+        if not 1 <= max_results <= 100:
+            raise ValueError("max_results deve estar entre 1 e 100.")
+        params = {"filter": filter_value, "per_page": str(max_results)}
+        if sort:
+            params["sort"] = sort
+        if self.email:
+            params["mailto"] = self.email
+        if self.api_key:
+            params["api_key"] = self.api_key
+        payload = self._fetch_json(OPENALEX_WORKS_URL, params)
+        raw_results = payload.get("results") or []
+        if not isinstance(raw_results, list):
+            raise RetrievalError("Resposta de relações do OpenAlex inválida.")
+        try:
+            total = max(int((payload.get("meta") or {}).get("count", len(raw_results))), 0)
+        except (TypeError, ValueError) as error:
+            raise RetrievalError("Contagem de relações do OpenAlex inválida.") from error
+        return total, tuple(item for item in raw_results if isinstance(item, Mapping))
 
 
 class OpenAlexSearchProvider:
@@ -426,6 +496,11 @@ class OpenAlexSearchProvider:
             else {}
         )
         source = primary.get("source") if isinstance(primary.get("source"), Mapping) else {}
+        best_oa = (
+            item.get("best_oa_location")
+            if isinstance(item.get("best_oa_location"), Mapping)
+            else {}
+        )
         authors: list[str] = []
         for authorship in item.get("authorships") or []:
             if not isinstance(authorship, Mapping):
@@ -451,6 +526,12 @@ class OpenAlexSearchProvider:
         publication_date = self._text(item.get("publication_date"))
         if not publication_date and item.get("publication_year"):
             publication_date = str(item["publication_year"])
+        try:
+            citation_count = max(0, int(item.get("cited_by_count", 0)))
+        except (TypeError, ValueError):
+            citation_count = None
+        related_works = item.get("related_works")
+        related_work_count = len(related_works) if isinstance(related_works, list) else None
         return ScientificWork(
             title=title,
             authors=tuple(authors),
@@ -463,6 +544,13 @@ class OpenAlexSearchProvider:
             sources=(self.name,),
             source_ids=((self.name, openalex_id),),
             source_ranks=(SourceRank(self.name, query, rank),),
+            citation_count=citation_count,
+            related_work_count=related_work_count,
+            full_text_url=(
+                self._text(best_oa.get("pdf_url"))
+                or self._text(primary.get("pdf_url"))
+                or self._text(best_oa.get("landing_page_url"))
+            ),
         )
 
     def search(self, query: str, *, max_results: int) -> ProviderSearchResult:
@@ -487,6 +575,193 @@ class ScieloSearchProvider(OpenAlexSearchProvider):
             name="SciELO (via OpenAlex)",
             source_filter=SCIELO_SOURCE_LIST_FILTER,
         )
+
+
+class EuropePmcSearchProvider:
+    """Europe PMC: indexa preprints e busca também no texto completo aberto."""
+
+    name = "Europe PMC"
+    SEARCH_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+
+    def __init__(
+        self,
+        *,
+        timeout: float = 20.0,
+        fetch_json: Callable[[str], Mapping[str, Any]] | None = None,
+        ssl_context: ssl.SSLContext | None = None,
+    ) -> None:
+        self.timeout = timeout
+        self._ssl_context = ssl_context or default_ssl_context()
+        self._fetch_json = fetch_json or self._request_json
+
+    def _request_json(self, url: str) -> Mapping[str, Any]:
+        request = Request(url, headers={"User-Agent": "FatoOuFake/0.1", "Accept": "application/json"})
+        try:
+            with urlopen(request, timeout=self.timeout, context=self._ssl_context) as response:
+                return json.loads(response.read(5_000_000).decode("utf-8"))
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError) as error:
+            raise RetrievalError(f"Europe PMC indisponível: {error}") from error
+
+    @staticmethod
+    def _scoped(query: str) -> str:
+        """Sem campo, o Europe PMC busca no texto completo e devolve muito ruído."""
+
+        if re.fullmatch(r"10\.\d{4,9}/\S+", query.strip()) or re.search(r"\b[A-Z_]+:", query):
+            return query
+        return f"(TITLE:({query}) OR ABSTRACT:({query}))"
+
+    def search(self, query: str, *, max_results: int) -> ProviderSearchResult:
+        params = urlencode(
+            {
+                "query": self._scoped(query),
+                "resultType": "lite",
+                "format": "json",
+                # A ordem padrão já é por relevância; "sort=RELEVANCE" devolve HTTP 503.
+                "pageSize": str(max_results),
+            }
+        )
+        payload = self._fetch_json(f"{self.SEARCH_URL}?{params}")
+        try:
+            total = int(payload.get("hitCount") or 0)
+        except (TypeError, ValueError):
+            total = 0
+        works = []
+        for rank, item in enumerate((payload.get("resultList") or {}).get("result") or [], start=1):
+            title = " ".join(str(item.get("title") or "").split()).rstrip(".")
+            if not title:
+                continue
+            doi = normalize_doi(item.get("doi"))
+            pmid = normalize_pmid(item.get("pmid"))
+            pmcid = str(item.get("pmcid") or "") or None
+            source_id = str(item.get("id") or pmid or doi or title)
+            is_preprint = str(item.get("source") or "").upper() == "PPR"
+            url = (
+                f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                if pmid
+                else f"https://doi.org/{doi}"
+                if doi
+                else f"https://europepmc.org/article/{item.get('source')}/{source_id}"
+            )
+            works.append(
+                ScientificWork(
+                    title=title,
+                    authors=tuple(
+                        name.strip()
+                        for name in str(item.get("authorString") or "").rstrip(".").split(",")
+                        if name.strip()
+                    )[:20],
+                    journal=item.get("journalTitle") or ("Preprint" if is_preprint else None),
+                    publication_date=str(item.get("firstPublicationDate") or item.get("pubYear") or "") or None,
+                    doi=doi,
+                    pmid=pmid,
+                    url=url,
+                    matched_queries=(query,),
+                    sources=(self.name,),
+                    source_ids=((self.name, source_id),),
+                    source_ranks=(SourceRank(self.name, query, rank),),
+                    citation_count=item.get("citedByCount"),
+                    full_text_url=(
+                        f"https://europepmc.org/article/PMC/{pmcid}"
+                        if pmcid and str(item.get("isOpenAccess") or "").upper() == "Y"
+                        else None
+                    ),
+                    publication_types=("Preprint",) if is_preprint else (),
+                )
+            )
+        return ProviderSearchResult(self.name, query, total, tuple(works))
+
+
+@dataclass(frozen=True)
+class OpenAlexGraphResult:
+    works: tuple[ScientificWork, ...]
+    query_results: tuple[FederatedQueryResult, ...]
+    failures: tuple[SourceSearchFailure, ...]
+
+
+class OpenAlexGraphExplorer:
+    """Expande DOI-semente por referências, citações e trabalhos relacionados."""
+
+    _RELATIONS = (
+        ("OpenAlex referências", "referenced_works"),
+        ("OpenAlex relacionados", "related_works"),
+    )
+
+    def __init__(self, client: OpenAlexClient) -> None:
+        self.client = client
+
+    @staticmethod
+    def _short_id(value: Any) -> str | None:
+        match = re.search(r"\bW\d+\b", str(value or ""), re.I)
+        return match.group(0).upper() if match else None
+
+    def _normalize_many(
+        self,
+        records: Sequence[Mapping[str, Any]],
+        *,
+        source: str,
+        query: str,
+    ) -> tuple[ScientificWork, ...]:
+        provider = OpenAlexSearchProvider(self.client, name=source)
+        return tuple(
+            provider._normalize(item, query, rank)
+            for rank, item in enumerate(records, start=1)
+        )
+
+    def expand(self, doi: str, *, max_results: int = 5) -> OpenAlexGraphResult:
+        normalized_doi = normalize_doi(doi)
+        if not normalized_doi:
+            return OpenAlexGraphResult((), (), ())
+        failures: list[SourceSearchFailure] = []
+        query_results: list[FederatedQueryResult] = []
+        works: list[ScientificWork] = []
+        seed_query = f"doi:{normalized_doi}"
+        try:
+            _, seed_records = self.client.filter_works(
+                f"doi:https://doi.org/{normalized_doi}", max_results=1
+            )
+        except (RetrievalError, ValueError) as error:
+            return OpenAlexGraphResult(
+                (), (), (SourceSearchFailure("OpenAlex grafo", seed_query, str(error)),)
+            )
+        if not seed_records:
+            return OpenAlexGraphResult(
+                (),
+                (),
+                (SourceSearchFailure("OpenAlex grafo", seed_query, "DOI-semente não localizado."),),
+            )
+        seed = seed_records[0]
+        seed_id = self._short_id(seed.get("id"))
+        if seed_id:
+            try:
+                total, records = self.client.filter_works(
+                    f"cites:{seed_id}", max_results=max_results, sort="cited_by_count:desc"
+                )
+                source = "OpenAlex citações"
+                works.extend(self._normalize_many(records, source=source, query=seed_query))
+                query_results.append(FederatedQueryResult(source, seed_query, total, len(records)))
+            except (RetrievalError, ValueError) as error:
+                failures.append(SourceSearchFailure("OpenAlex citações", seed_query, str(error)))
+
+        for source, field in self._RELATIONS:
+            identifiers = tuple(
+                dict.fromkeys(
+                    identifier
+                    for value in (seed.get(field) or ())[:max_results]
+                    if (identifier := self._short_id(value))
+                )
+            )
+            if not identifiers:
+                query_results.append(FederatedQueryResult(source, seed_query, 0, 0))
+                continue
+            try:
+                total, records = self.client.filter_works(
+                    f"openalex_id:{'|'.join(identifiers)}", max_results=max_results
+                )
+                works.extend(self._normalize_many(records, source=source, query=seed_query))
+                query_results.append(FederatedQueryResult(source, seed_query, total, len(records)))
+            except (RetrievalError, ValueError) as error:
+                failures.append(SourceSearchFailure(source, seed_query, str(error)))
+        return OpenAlexGraphResult(tuple(works), tuple(query_results), tuple(failures))
 
 
 class FederatedSearchEngine:
@@ -514,6 +789,8 @@ class FederatedSearchEngine:
         raw_works: list[ScientificWork] = []
         for provider in self.providers:
             for query in search_plan.queries:
+                if uses_pubmed_syntax(query) and not getattr(provider, "pubmed_syntax", False):
+                    continue
                 try:
                     result = provider.search(query, max_results=max_results_per_query)
                 except (PubMedError, RetrievalError, ValueError) as error:

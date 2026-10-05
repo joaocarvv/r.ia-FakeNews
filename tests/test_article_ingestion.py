@@ -3,6 +3,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -10,8 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from fatofake.article_ingestion import (
     ArticleFirstAnalysisRunner,
     GeminiArticleExtractor,
+    ResolvedArticleDocument,
     validate_article_submission,
 )
+from fatofake.gemini_evidence import GeminiAnalysisError, GeminiEvidenceAnalyzer
 
 
 class GatewayStub:
@@ -27,6 +30,7 @@ class GatewayStub:
             "doi": "10.1000/target",
             "primary_claim": "The treatment reduces symptoms in adults.",
             "search_query": "treatment symptoms adults",
+            "research_context": "BASIC_SCIENCE",
             "additional_claims": [],
             "absolute_language": ["completely eliminates symptoms"],
         }
@@ -52,8 +56,22 @@ class EvidenceRunnerStub:
         *,
         excluded_dois=(),
         query_override=None,
+        related_seed_pmids=(),
+        seed_doi=None,
+        seed_authors=(),
+        **_options,
     ):
-        self.calls.append((claim, article_reference, excluded_dois, query_override))
+        self.calls.append(
+            (
+                claim,
+                article_reference,
+                excluded_dois,
+                query_override,
+                related_seed_pmids,
+                seed_doi,
+                seed_authors,
+            )
+        )
         return {"verification": {"alerts": []}, "articles": []}
 
 
@@ -70,6 +88,14 @@ class DocumentParserStub:
     def parse_pdf(self, content):
         self.contents.append(content)
         return ParsedDocumentStub()
+
+
+class ResolverStub:
+    def __init__(self, resolved):
+        self.resolved = resolved
+
+    def resolve(self, _submission):
+        return self.resolved
 
 
 class ArticleIngestionTests(unittest.TestCase):
@@ -106,6 +132,39 @@ class ArticleIngestionTests(unittest.TestCase):
         parts = gateway.payloads[0]["contents"][0]["parts"]
         self.assertEqual(parts[1]["inlineData"]["mimeType"], "image/png")
 
+    def test_retries_once_when_url_context_returns_empty_candidate(self):
+        class FlakyGateway(GatewayStub):
+            _response_text = staticmethod(GeminiEvidenceAnalyzer._response_text)
+
+            def _post_json(self, url, payload):
+                if not self.payloads:
+                    self.payloads.append(payload)
+                    return {"candidates": [{"finishReason": "OTHER"}]}
+                return super()._post_json(url, payload)
+
+        gateway = FlakyGateway()
+        submission = validate_article_submission({"article_reference": "10.1000/target"})
+
+        extracted = GeminiArticleExtractor(gateway).extract(submission)
+
+        self.assertEqual(len(gateway.payloads), 2)
+        self.assertIn("reduces symptoms", extracted.primary_claim)
+
+    def test_gives_up_after_second_empty_response(self):
+        class EmptyGateway(GatewayStub):
+            _response_text = staticmethod(GeminiEvidenceAnalyzer._response_text)
+
+            def _post_json(self, _url, payload):
+                self.payloads.append(payload)
+                return {"candidates": [{"finishReason": "OTHER"}]}
+
+        gateway = EmptyGateway()
+        submission = validate_article_submission({"article_reference": "10.1000/target"})
+
+        with self.assertRaises(GeminiAnalysisError):
+            GeminiArticleExtractor(gateway).extract(submission)
+        self.assertEqual(len(gateway.payloads), 2)
+
     def test_article_runner_excludes_submitted_doi_from_evidence(self):
         evidence = EvidenceRunnerStub()
         runner = ArticleFirstAnalysisRunner(
@@ -124,8 +183,29 @@ class ArticleIngestionTests(unittest.TestCase):
             "The treatment reduces symptoms in adults.",
         )
         self.assertEqual(
+            result["user_summary"]["claim"],
+            "The treatment reduces symptoms in adults.",
+        )
+        self.assertNotIn("confidence_index", result["verification"])
+        self.assertEqual(
+            set(result["verification"]["indicators"]),
+            {
+                "search_coverage",
+                "evidence_compatibility",
+                "methodological_confidence",
+            },
+        )
+        self.assertEqual(
             result["verification"]["alerts"][0]["code"],
             "ABSOLUTE_LANGUAGE_IN_ARTICLE",
+        )
+        self.assertEqual(
+            result["article_dossier"]["methodology"]["classification_source"],
+            "GEMINI_FALLBACK",
+        )
+        self.assertEqual(
+            result["article_dossier"]["identity"]["status"],
+            "UNKNOWN",
         )
         self.assertFalse(
             any(
@@ -158,6 +238,43 @@ class ArticleIngestionTests(unittest.TestCase):
         self.assertNotIn("inlineData", parts[1])
         self.assertEqual(result["submitted_article"]["document_parser"], "liteparse")
         self.assertEqual(result["submitted_article"]["page_count"], 4)
+
+    def test_submitted_retraction_becomes_critical_alert(self):
+        identity = SimpleNamespace(
+            status="VERIFIED",
+            reason="DOI e título compatíveis.",
+            crossref_url="https://doi.org/10.1000/target",
+            crossref_authors=(),
+            crossref_work_type="journal-article",
+            crossref_updates=(SimpleNamespace(update_type="retraction"),),
+        )
+        resolved = ResolvedArticleDocument(
+            title="Controlled article",
+            doi="10.1000/target",
+            text="Controlled scientific article with enough text for extraction.",
+            pmid="12345678",
+            content_scope="FULL_TEXT",
+            identity_verification=identity,
+        )
+        runner = ArticleFirstAnalysisRunner(
+            GeminiArticleExtractor(GatewayStub()),
+            EvidenceRunnerStub(),
+            reference_resolver=ResolverStub(resolved),
+        )
+        submission = validate_article_submission(
+            {"article_reference": "https://pubmed.ncbi.nlm.nih.gov/12345678/"}
+        )
+
+        result = runner.analyze_article(submission)
+
+        self.assertEqual(
+            result["verification"]["alerts"][0]["code"],
+            "SUBMITTED_ARTICLE_RETRACTED",
+        )
+        self.assertEqual(
+            result["article_dossier"]["editorial_status"]["retraction"],
+            "RETRACTED",
+        )
 
 
 if __name__ == "__main__":

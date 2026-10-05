@@ -103,6 +103,8 @@ class CrossrefTests(unittest.TestCase):
 
         self.assertEqual(result.status, "VERIFIED")
         self.assertGreaterEqual(result.title_similarity or 0, 0.85)
+        self.assertEqual(result.crossref_authors, ("Xiaonan Chen", "Yufeng Zhao"))
+        self.assertEqual(result.crossref_work_type, "journal-article")
 
     def test_requires_review_when_titles_diverge(self) -> None:
         client = CrossrefClient(fetch_json=RecordingFetcher(CROSSREF_RESPONSE))

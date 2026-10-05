@@ -10,6 +10,7 @@ from .analysis_service import (
     MultiArticleAnalysisService,
     ScientificArticleProcessor,
 )
+from .article_profile import build_article_dossier
 
 from .amstar2 import (
     AMSTAR2_ITEMS,
@@ -88,6 +89,8 @@ from .federated_search import (
     FederatedSearchError,
     FederatedSearchResult,
     OpenAlexClient,
+    OpenAlexGraphExplorer,
+    OpenAlexGraphResult,
     OpenAlexSearchProvider,
     ProviderSearchResult,
     PubMedSearchProvider,
@@ -122,8 +125,10 @@ from .quality_validation import (
     ExternalServiceError,
     QualityCheck,
     StudyDesign,
+    StudyDesignAssessment,
     TrialRegistration,
     ValidationStatus,
+    classify_study_design,
     detect_study_design,
     validate_article_quality,
 )
@@ -132,6 +137,12 @@ from .search_preparation import (
     SearchPlan,
     SearchPreparationError,
     prepare_search_plan,
+)
+from .scientific_search import (
+    ClaimRelevanceReranker,
+    ExpandedQuery,
+    RerankedWork,
+    expand_scientific_queries,
 )
 from .source_audit import (
     AcademicSourceAuditor,
@@ -163,6 +174,7 @@ from .retrieval import (
     RetrievedChunk,
     tokenize,
 )
+from .result_presentation import build_user_summary
 from .report_generation import (
     EvidenceReport,
     MethodologySummary,
@@ -271,11 +283,14 @@ __all__ = [
     "SentenceTransformerEncoder",
     "SynthesisConfig",
     "StudyDesign",
+    "StudyDesignAssessment",
     "TrialRegistration",
     "TransformersNliClassifier",
     "prepare_search_plan",
     "quality_profile_from_amstar",
     "build_claim_evidence_pairs",
+    "build_article_dossier",
+    "build_user_summary",
     "classify_claim_evidence_pairs",
     "chunk_article_content",
     "retrieve_article_content",
@@ -293,6 +308,7 @@ __all__ = [
     "methodology_summary_from_amstar",
     "render_evidence_report_markdown",
     "detect_study_design",
+    "classify_study_design",
     "OPENALEX_WORKS_URL",
     "SCIELO_SOURCE_LIST_FILTER",
     "FederatedQueryResult",
@@ -300,6 +316,8 @@ __all__ = [
     "FederatedSearchError",
     "FederatedSearchResult",
     "OpenAlexClient",
+    "OpenAlexGraphExplorer",
+    "OpenAlexGraphResult",
     "OpenAlexSearchProvider",
     "ProviderSearchResult",
     "PubMedSearchProvider",
@@ -310,4 +328,8 @@ __all__ = [
     "deduplicate_works",
     "normalize_doi",
     "normalize_pmid",
+    "ClaimRelevanceReranker",
+    "ExpandedQuery",
+    "RerankedWork",
+    "expand_scientific_queries",
 ]

@@ -11,6 +11,10 @@ from fatofake.document_parsing import DocumentParsingError, LiteParseDocumentPar
 class ResultStub:
     text = "# Study\n\n" + ("Scientific result with traceable content. " * 4)
     total_pages = 3
+    pages = (
+        type("Page", (), {"page_num": 1, "markdown": "# Introduction\nBackground text."})(),
+        type("Page", (), {"page_num": 2, "markdown": "# Results\nScientific result."})(),
+    )
 
 
 class ParserStub:
@@ -39,6 +43,8 @@ class LiteParseDocumentParserTests(unittest.TestCase):
 
         self.assertEqual(parsed.parser_name, "liteparse")
         self.assertEqual(parsed.page_count, 3)
+        self.assertEqual(parsed.pages[1].page_number, 2)
+        self.assertIn("Results", parsed.pages[1].text)
         self.assertIn("Scientific result", parsed.text)
         self.assertEqual(created[0].content, b"%PDF-test")
         self.assertEqual(created[0].options["output_format"], "markdown")

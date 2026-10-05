@@ -1,4 +1,4 @@
-"""Análise estruturada e rastreável de abstracts com a API Gemini."""
+"""Análise estruturada de trechos científicos rastreáveis com a API Gemini."""
 
 from __future__ import annotations
 
@@ -25,8 +25,127 @@ _STUDY_DESIGNS = {
 }
 
 
+_COMPARABILITY = ("DIRECT", "PARTIAL", "INDIRECT")
+_ROB_TOOLS = ("ROB2", "ROBINS_I", "AMSTAR2", "NOT_APPLICABLE")
+_ROB_JUDGMENTS = ("LOW", "SOME_CONCERNS", "HIGH", "CRITICAL", "UNCLEAR")
+_STUDY_ROW_TEXT_LIMITS = {
+    "title_pt": 400,
+    "design_detail": 200,
+    "population": 300,
+    "sample_size": 80,
+    "intervention_or_exposure": 300,
+    "comparator": 300,
+    "outcome": 300,
+    "effect_estimate": 300,
+    "finding_pt": 600,
+    "quote_pt": 600,
+    "comparability_notes": 400,
+    "cohort_or_dataset": 200,
+}
+
+
+def _study_row_schema() -> dict[str, Any]:
+    text = {"type": "STRING"}
+    properties: dict[str, Any] = {name: text for name in _STUDY_ROW_TEXT_LIMITS}
+    properties.update(
+        {
+            "comparability": {"type": "STRING", "enum": list(_COMPARABILITY)},
+            "rob_tool": {"type": "STRING", "enum": list(_ROB_TOOLS)},
+            "rob_overall": {"type": "STRING", "enum": list(_ROB_JUDGMENTS)},
+            "rob_domains": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "domain": text,
+                        "judgment": {"type": "STRING", "enum": list(_ROB_JUDGMENTS)},
+                        "reason": text,
+                    },
+                    "required": ["domain", "judgment", "reason"],
+                },
+            },
+            "registration_ids": {"type": "ARRAY", "items": text},
+        }
+    )
+    return {"type": "OBJECT", "properties": properties, "required": list(properties)}
+
+
+_STUDY_ROW_PROMPT = (
+    "Escreva rationale em português.\n\n"
+    "Para cada documento preencha também study_row, uma linha padronizada de "
+    "tabela de evidências, usando apenas os trechos: title_pt traduz o título "
+    "para português; design_detail descreve o desenho; population, sample_size, "
+    "intervention_or_exposure, comparator e outcome descrevem o estudo em "
+    "português (string vazia se não informado); effect_estimate copia a medida "
+    "de efeito com intervalo de confiança e valor de p quando houver; finding_pt "
+    "resume o resultado principal em português; quote_pt traduz evidence_quote. "
+    "comparability compara o PICO do estudo com o da alegação: DIRECT quando "
+    "população, intervenção/exposição e desfecho coincidem, PARTIAL quando um "
+    "elemento difere, INDIRECT quando dois ou mais diferem ou o estudo é "
+    "pré-clínico; explique em comparability_notes. Avalie risco de viés com a "
+    "ferramenta adequada: ROB2 para ensaios randomizados, ROBINS_I para estudos "
+    "não randomizados de intervenção ou exposição, AMSTAR2 para revisões "
+    "sistemáticas e NOT_APPLICABLE nos demais casos; use UNCLEAR quando os "
+    "trechos não permitirem julgar e nunca invente informação metodológica. "
+    "registration_ids lista registros (NCT, ISRCTN, PROSPERO, ReBEC) citados e "
+    "cohort_or_dataset nomeia coorte ou base de dados reutilizada, se houver."
+)
+
+
+def _clean_text(value: Any, limit: int = 500) -> str:
+    return " ".join(str(value or "").split())[:limit]
+
+
+def _enum(value: Any, allowed: Sequence[str], default: str) -> str:
+    normalized = _clean_text(value).upper()
+    return normalized if normalized in allowed else default
+
+
+def _parse_study_row(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    row: dict[str, Any] = {
+        name: _clean_text(raw.get(name), limit)
+        for name, limit in _STUDY_ROW_TEXT_LIMITS.items()
+    }
+    row["comparability"] = _enum(raw.get("comparability"), _COMPARABILITY, "INDIRECT")
+    row["rob_tool"] = _enum(raw.get("rob_tool"), _ROB_TOOLS, "NOT_APPLICABLE")
+    row["rob_overall"] = _enum(raw.get("rob_overall"), _ROB_JUDGMENTS, "UNCLEAR")
+    row["rob_domains"] = [
+        {
+            "domain": _clean_text(item.get("domain"), 120),
+            "judgment": _enum(item.get("judgment"), _ROB_JUDGMENTS, "UNCLEAR"),
+            "reason": _clean_text(item.get("reason"), 300),
+        }
+        for item in (raw.get("rob_domains") or ())[:8]
+        if isinstance(item, dict) and _clean_text(item.get("domain"))
+    ]
+    row["registration_ids"] = [
+        _clean_text(item, 60)
+        for item in (raw.get("registration_ids") or ())[:5]
+        if _clean_text(item)
+    ]
+    return row
+
+
 class GeminiAnalysisError(RuntimeError):
     """A API não produziu uma análise estruturada utilizável."""
+
+
+@dataclass(frozen=True)
+class EvidencePassage:
+    passage_id: str
+    text: str
+    section: str
+    source_url: str
+    page_number: int | None = None
+    content_scope: str = "ABSTRACT"
+
+    def __post_init__(self) -> None:
+        if not self.passage_id.strip() or not self.text.strip() or not self.section.strip():
+            raise ValueError("Identificador, texto e seção do trecho são obrigatórios.")
+        if not self.source_url.startswith(("https://", "http://")):
+            raise ValueError("A fonte do trecho precisa ser uma URL HTTP(S).")
 
 
 @dataclass(frozen=True)
@@ -35,12 +154,28 @@ class EvidenceDocument:
     title: str
     abstract: str
     source_url: str
+    passages: tuple[EvidencePassage, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.pmid.strip() or not self.title.strip() or not self.abstract.strip():
-            raise ValueError("PMID, título e abstract são obrigatórios.")
+        if not self.pmid.strip() or not self.title.strip():
+            raise ValueError("PMID e título são obrigatórios.")
+        if not self.abstract.strip() and not self.passages:
+            raise ValueError("O documento precisa de abstract ou trechos.")
         if not self.source_url.startswith(("https://", "http://")):
             raise ValueError("A fonte do documento precisa ser uma URL HTTP(S).")
+
+    @property
+    def evidence_passages(self) -> tuple[EvidencePassage, ...]:
+        if self.passages:
+            return self.passages
+        return (
+            EvidencePassage(
+                passage_id=f"{self.pmid}:abstract",
+                text=self.abstract,
+                section="Abstract",
+                source_url=self.source_url,
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -52,13 +187,20 @@ class GeminiEvidenceAssessment:
     evidence_quote: str | None
     study_design: str
     model_name: str
+    passage_id: str | None = None
+    evidence_section: str | None = None
+    evidence_page: int | None = None
+    content_scope: str = "ABSTRACT"
+    source_url: str | None = None
+    # Linha padronizada (PICO, efeito, comparabilidade, viés, tradução).
+    study_row: Mapping[str, Any] | None = None
 
 
 JsonPoster = Callable[[str, Mapping[str, Any]], Mapping[str, Any]]
 
 
 class GeminiEvidenceAnalyzer:
-    """Compara uma alegação com abstracts sem permitir evidência sem proveniência."""
+    """Compara uma alegação com trechos sem permitir evidência sem proveniência."""
 
     def __init__(
         self,
@@ -173,10 +315,12 @@ class GeminiEvidenceAnalyzer:
                             },
                             "rationale": {"type": "STRING"},
                             "evidence_quote": {"type": "STRING"},
+                            "passage_id": {"type": "STRING"},
                             "study_design": {
                                 "type": "STRING",
                                 "enum": sorted(_STUDY_DESIGNS),
                             },
+                            "study_row": _study_row_schema(),
                         },
                         "required": [
                             "pmid",
@@ -184,7 +328,9 @@ class GeminiEvidenceAnalyzer:
                             "confidence",
                             "rationale",
                             "evidence_quote",
+                            "passage_id",
                             "study_design",
+                            "study_row",
                         ],
                     },
                 }
@@ -193,27 +339,61 @@ class GeminiEvidenceAnalyzer:
         }
 
     @staticmethod
-    def _prompt(claim: str, documents: Sequence[EvidenceDocument]) -> str:
+    def _prompt(
+        claim: str,
+        documents: Sequence[EvidenceDocument],
+        claim_profile: Mapping[str, Any] | None = None,
+    ) -> str:
         records = [
             {
                 "pmid": item.pmid,
                 "title": item.title,
-                "abstract": item.abstract,
-                "source_url": item.source_url,
+                "passages": [
+                    {
+                        "passage_id": passage.passage_id,
+                        "section": passage.section,
+                        "page_number": passage.page_number,
+                        "content_scope": passage.content_scope,
+                        "source_url": passage.source_url,
+                        "text": passage.text,
+                    }
+                    for passage in item.evidence_passages
+                ],
             }
             for item in documents
         ]
         return (
             "Você é um classificador de compatibilidade científica. Compare a "
-            "ALEGAÇÃO apenas com cada ABSTRACT fornecido, sem usar conhecimento "
+            "ALEGAÇÃO apenas com os TRECHOS fornecidos, sem usar conhecimento "
             "externo. SUPPORTS significa que o resultado descrito é compatível; "
             "CONTRADICTS significa resultado incompatível; NEUTRAL significa que o "
             "estudo aborda o tema sem responder à alegação; UNCERTAIN significa que "
-            "o abstract não permite decidir. A confiança mede somente a segurança da "
+            "os trechos não permitem decidir. A confiança mede somente a segurança da "
             "classificação textual, nunca a probabilidade de verdade. evidence_quote "
-            "deve ser uma citação curta, literal e contígua do abstract; use string "
-            "vazia se não houver trecho. Não conclua que a alegação é verdadeira ou "
-            "falsa.\n\nALEGAÇÃO:\n"
+            "deve ser uma citação curta, literal e contígua de um trecho. passage_id "
+            "deve identificar exatamente esse trecho; use strings vazias se não houver "
+            "evidência. Priorize Results/Resultados e Conclusion/Conclusão sobre "
+            "Introdução. Não conclua que a alegação é verdadeira ou "
+            "falsa. " + _STUDY_ROW_PROMPT
+            + (
+                "\n\nPICO DA ALEGAÇÃO JSON:\n"
+                + json.dumps(
+                    {
+                        key: claim_profile.get(key)
+                        for key in (
+                            "claim_type",
+                            "population",
+                            "intervention",
+                            "comparator",
+                            "outcome",
+                        )
+                    },
+                    ensure_ascii=False,
+                )
+                if claim_profile
+                else ""
+            )
+            + "\n\nALEGAÇÃO:\n"
             + claim.strip()
             + "\n\nDOCUMENTOS JSON:\n"
             + json.dumps(records, ensure_ascii=False)
@@ -234,19 +414,24 @@ class GeminiEvidenceAnalyzer:
         self,
         claim: str,
         documents: Sequence[EvidenceDocument],
+        claim_profile: Mapping[str, Any] | None = None,
     ) -> tuple[GeminiEvidenceAssessment, ...]:
         if not claim.strip():
             raise ValueError("A alegação não pode estar vazia.")
         if not documents:
             return ()
         by_pmid = {item.pmid: item for item in documents}
+        passages_by_pmid = {
+            item.pmid: {passage.passage_id: passage for passage in item.evidence_passages}
+            for item in documents
+        }
         if len(by_pmid) != len(documents):
             raise ValueError("Os documentos não podem repetir o mesmo PMID.")
 
         endpoint = f"{GEMINI_API_BASE_URL}/{self.model_name}:generateContent"
         request_payload = {
             "contents": [
-                {"role": "user", "parts": [{"text": self._prompt(claim, documents)}]}
+                {"role": "user", "parts": [{"text": self._prompt(claim, documents, claim_profile)}]}
             ],
             "generationConfig": {
                 "temperature": 0,
@@ -282,13 +467,24 @@ class GeminiEvidenceAnalyzer:
                 confidence = 0.0
             rationale = " ".join(str(raw.get("rationale") or "").split())
             quote = " ".join(str(raw.get("evidence_quote") or "").split())[:500]
-            normalized_abstract = " ".join(by_pmid[pmid].abstract.split())
-            if quote and quote not in normalized_abstract:
+            passage_id = str(raw.get("passage_id") or "").strip()
+            available_passages = passages_by_pmid[pmid]
+            if not passage_id and len(available_passages) == 1:
+                passage_id = next(iter(available_passages))
+            passage = available_passages.get(passage_id)
+            normalized_source = " ".join(passage.text.split()) if passage else ""
+            missing_direct_evidence = relation in {"SUPPORTS", "CONTRADICTS"} and (
+                not quote or passage is None
+            )
+            invalid_quote = bool(quote) and (
+                passage is None or quote not in normalized_source
+            )
+            if missing_direct_evidence or invalid_quote:
                 relation = "UNCERTAIN"
                 confidence = 0.0
                 rationale = (
-                    "O trecho devolvido pelo modelo não foi localizado literalmente "
-                    "no abstract; a avaliação foi invalidada."
+                    "A avaliação direta não apresentou uma citação literal localizada "
+                    "no trecho indicado; a avaliação foi invalidada."
                 )
                 quote = ""
             results[pmid] = GeminiEvidenceAssessment(
@@ -299,5 +495,11 @@ class GeminiEvidenceAnalyzer:
                 evidence_quote=quote or None,
                 study_design=design,
                 model_name=self.model_name,
+                passage_id=passage.passage_id if passage else None,
+                evidence_section=passage.section if passage else None,
+                evidence_page=passage.page_number if passage else None,
+                content_scope=passage.content_scope if passage else "UNKNOWN",
+                source_url=passage.source_url if passage else by_pmid[pmid].source_url,
+                study_row=_parse_study_row(raw.get("study_row")),
             )
         return tuple(results[item.pmid] for item in documents if item.pmid in results)

@@ -1,16 +1,30 @@
-# docker compose up        → sobe a API Web (localhost:5001) e o JupyterLab (localhost:8888) em um único container
+# docker compose up        → sobe a API Web (localhost:5001), JupyterLab (localhost:8888) e stack de observabilidade
 # docker compose run app python -m unittest discover tests/  → roda os testes
+
+name: fatofake
 
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        INSTALL_CRAWL4AI: ${INSTALL_CRAWL4AI:-true}
+    env_file:
+      - .env
+    environment:
+      APP_ENV: docker
+      SERVICE_NAME: fatofake
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FILE: /var/log/fatofake/app.jsonl
+      JOB_DATABASE_PATH: /var/lib/fatofake/analysis-jobs.sqlite3
+      ENABLE_CRAWL4AI: ${ENABLE_CRAWL4AI:-true}
+      WATCH_INTERVAL_HOURS: ${WATCH_INTERVAL_HOURS:-24}
+      LLM_MAX_ATTEMPTS: ${LLM_MAX_ATTEMPTS_DOCKER:-5}
+      LLM_RETRY_BACKOFF: ${LLM_RETRY_BACKOFF_DOCKER:-2}
     ports:
       - "${HOST_PORT:-5001}:5000"
       - "8888:8888"
-    env_file:
-      - .env
     volumes:
       # Código, dados e notebooks montados para edição ao vivo (sem rebuild)
       - ./src:/app/src
@@ -20,11 +34,80 @@ services:
       - ./run_acceptance_app.py:/app/run_acceptance_app.py
       - ./openapi.yaml:/app/openapi.yaml
       - ./start.sh:/app/start.sh
-      # Persiste modelos do HuggingFace entre restarts
+      # Volumes persistentes
+      - app-logs:/var/log/fatofake
+      - app-data:/var/lib/fatofake
       - hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  loki:
+    image: grafana/loki:3.7.0
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./observability/loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    healthcheck:
+      test: ["CMD", "/usr/bin/loki", "-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:latest
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+      - "127.0.0.1:12345:12345"
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - app-logs:/var/log/fatofake:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      loki:
+        condition: service_healthy
+      app:
+        condition: service_started
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fatofake-logs.json
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
 volumes:
+  app-logs:
+  app-data:
   hf_cache:
-
-
+  loki-data:
+  alloy-data:
+  grafana-data:

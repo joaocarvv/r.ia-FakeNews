@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .search_preparation import SearchPlan
-from .transport import default_ssl_context
+from .transport import default_ssl_context, wait_for_ncbi_slot
 
 
 EUTILS_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
@@ -36,6 +36,7 @@ class Publication:
     url: str
     matched_queries: tuple[str, ...]
     source: str = "PubMed"
+    publication_types: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -74,25 +75,28 @@ class PubMedClient:
         self._ssl_context = ssl_context or default_ssl_context()
 
     def _request_json(self, endpoint: str, params: Mapping[str, str]) -> Mapping[str, Any]:
-        minimum_interval = 0.11 if self.api_key else 0.34
-        if self._last_request_at is not None:
-            elapsed = time.monotonic() - self._last_request_at
-            if elapsed < minimum_interval:
-                time.sleep(minimum_interval - elapsed)
-
         url = f"{EUTILS_BASE_URL}/{endpoint}?{urlencode(params)}"
         request = Request(url, headers={"User-Agent": "FatoOuFake/0.1"})
-        try:
-            with urlopen(
-                request,
-                timeout=self.timeout,
-                context=self._ssl_context,
-            ) as response:
-                payload = json.load(response)
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
-            raise PubMedError(f"Falha ao consultar o PubMed: {error}") from error
-        finally:
-            self._last_request_at = time.monotonic()
+        payload: Any = None
+        for attempt in range(3):
+            wait_for_ncbi_slot(bool(self.api_key))
+            try:
+                with urlopen(
+                    request,
+                    timeout=self.timeout,
+                    context=self._ssl_context,
+                ) as response:
+                    payload = json.load(response)
+                break
+            except HTTPError as error:
+                # 429/5xx são transitórios: espera crescente antes de desistir.
+                if error.code not in {429, 500, 502, 503, 504} or attempt == 2:
+                    raise PubMedError(f"Falha ao consultar o PubMed: {error}") from error
+                time.sleep(1.0 * (2**attempt))
+            except (URLError, TimeoutError, json.JSONDecodeError) as error:
+                raise PubMedError(f"Falha ao consultar o PubMed: {error}") from error
+            finally:
+                self._last_request_at = time.monotonic()
 
         if not isinstance(payload, dict):
             raise PubMedError("O PubMed retornou uma resposta JSON inesperada.")
@@ -122,6 +126,37 @@ class PubMedClient:
             raise PubMedError("Resposta ESearch inválida ou incompleta.") from error
 
         return total, identifiers
+
+    def related_ids(self, pmid: str, *, max_results: int = 10) -> tuple[str, ...]:
+        """Retorna vizinhos computacionais do PubMed, sem o artigo-semente."""
+
+        if not pmid.isdigit():
+            raise ValueError("O PMID deve conter somente dígitos.")
+        if not 1 <= max_results <= 100:
+            raise ValueError("max_results deve estar entre 1 e 100.")
+        params = self._common_params()
+        params.update({"dbfrom": "pubmed", "id": pmid, "cmd": "neighbor"})
+        payload = self._fetch_json("elink.fcgi", params)
+        try:
+            linksets = payload.get("linksets") or []
+            databases = linksets[0].get("linksetdbs") or []
+        except (AttributeError, IndexError, TypeError) as error:
+            raise PubMedError("Resposta ELink inválida ou incompleta.") from error
+
+        links: list[str] = []
+        for name in ("pubmed_pubmed_five", "pubmed_pubmed"):
+            for database in databases:
+                if database.get("linkname") != name:
+                    continue
+                for identifier in database.get("links") or []:
+                    normalized = str(identifier)
+                    if normalized != pmid and normalized not in links:
+                        links.append(normalized)
+                    if len(links) == max_results:
+                        return tuple(links)
+            if links:
+                break
+        return tuple(links)
 
     def fetch_summaries(
         self,
@@ -164,6 +199,11 @@ class PubMedClient:
             )
             publication_date = document.get("epubdate") or document.get("pubdate") or None
             journal = document.get("fulljournalname") or document.get("source") or None
+            publication_types = tuple(
+                str(item).strip()
+                for item in (document.get("pubtype") or ())
+                if str(item).strip()
+            )
 
             publications.append(
                 Publication(
@@ -175,6 +215,7 @@ class PubMedClient:
                     doi=doi,
                     url=f"https://pubmed.ncbi.nlm.nih.gov/{identifier}/",
                     matched_queries=matched_queries.get(identifier, ()),
+                    publication_types=publication_types,
                 )
             )
 

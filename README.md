@@ -18,7 +18,14 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 - `notebooks/20_validacao_pesquisa_adversarial.ipynb`: validação controlada do pesquisador, crítico e árbitro determinístico com checagem de proveniência.
 - `notebooks/21_validacao_fontes_cientificas.ipynb`: auditoria ao vivo de acesso e papel das fontes científicas abertas, editoriais e manuais consideradas pelo grupo.
 - `notebooks/22_validacao_busca_federada.ipynb`: validação da normalização, deduplicação, proveniência e ranking federado entre PubMed, OpenAlex e SciELO via OpenAlex.
-- `notebooks/23_validacao_ingestao_liteparse.ipynb`: validação de ingestão e parsing local de PDFs e referências de artigos.
+- `notebooks/23_validacao_ingestao_liteparse.ipynb`: validação da leitura local de PDFs e da repetição segura de falhas temporárias do Gemini.
+- `notebooks/24_validacao_verificacao_artigo.ipynb`: validação da busca relacionada, compatibilidade textual e índice de cobertura da verificação.
+- `notebooks/25_validacao_texto_completo_rastreavel.ipynb`: validação da prioridade de texto completo, seções, tabelas e proveniência por página.
+- `notebooks/26_validacao_saida_coerente.ipynb`: validação da narrativa consolidada, dos denominadores e da abstenção apresentada ao usuário.
+- `notebooks/27_validacao_multiplas_alegacoes.ipynb`: validação da extração atômica, deduplicação e análise independente de várias alegações do mesmo artigo.
+- `notebooks/28_validacao_indicadores_separados.ipynb`: validação da separação entre cobertura da busca, compatibilidade das evidências e confiança metodológica, sem percentual geral de verdade.
+- `notebooks/29_validacao_ficha_artigo.ipynb`: validação da precedência determinística na classificação do desenho e da ficha auditável do artigo enviado.
+- `notebooks/30_validacao_busca_expandida_reranking.ipynb`: validação da expansão rastreável por tema, vocabulário biomédico, revisões, DOI/autor e grafo científico, com reranking por cobertura conceitual.
 - `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
 - `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
 - `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.
@@ -320,11 +327,117 @@ Para abrir o protótipo que aceita link/DOI de artigo, PDF ou imagem:
 No Windows, use `.venv/Scripts/python.exe`. Depois, acesse
 `http://127.0.0.1:5000`. PDFs são convertidos localmente pelo LiteParse antes da
 extração das alegações; links do PubMed são resolvidos diretamente pelas APIs do
-NCBI. Com `GEMINI_API_KEY` configurada, a aplicação extrai a alegação principal,
-busca evidências independentes e valida se os trechos citados existem nos abstracts
-originais. A análise mede compatibilidade, nunca declara o artigo verdadeiro ou falso.
+NCBI. Com `GEMINI_API_KEY` configurada, a aplicação primeiro gera um dossiê da
+fonte principal: objetivo, pergunta de pesquisa, desenho, população, amostra,
+métodos, resultados, conclusão, limitações, glossário e mapa das seções. Em PDFs,
+as citações do dossiê são verificadas contra o texto extraído e associadas à página
+quando possível. Depois, a aplicação extrai as principais alegações, busca evidências
+independentes e valida os trechos citados nas fontes externas. A análise mede
+compatibilidade, nunca declara o artigo verdadeiro ou falso.
+Para links do PubMed, a recuperação combina busca temática e artigos relacionados
+do ELink. O índice de confiança apresentado mede cobertura da verificação — textos
+analisados, atualidade, citações e ramificação — e não a chance de o artigo estar correto.
 
-## 9. Solução de problemas
+#### Fluxo em três etapas
+
+1. **Leitura do artigo.** O dossiê persistido (SQLite) traz texto por página e
+   seção, tabelas e figuras (inventário determinístico das legendas + descrição do
+   modelo), desenho, população, amostra, intervenção/exposição, comparador,
+   desfechos, métodos estatísticos, resultados numéricos, conclusão dos autores,
+   limitações declaradas pelos autores (separadas da leitura crítica),
+   financiamento, conflitos de interesse e a cobertura real da leitura. Quando só
+   há abstract ou metadados, a tela diz isso explicitamente.
+2. **Revisão humana.** Cada alegação vira um cartão editável com afirmação
+   normalizada, trecho literal com página/seção, tipo (causal, terapêutica,
+   diagnóstica, prognóstica…), PICO e importância estimada. Texto editado é
+   reestruturado (PICO e conceitos) antes da busca. O usuário escolhe busca rápida
+   ou revisão profunda e vê tempo, tokens e custo estimados antes de investigar.
+3. **Investigação.** As consultas do PubMed são booleanas, montadas a partir de
+   conceitos em inglês com sinônimos; a tradução livre (Marian) fica como reserva.
+   Para cada estudo recuperado o texto integral é buscado em PMC, Europe PMC,
+   Unpaywall, Semantic Scholar e no link aberto do OpenAlex (respeitando
+   robots.txt; Crawl4AI renderiza páginas dependentes de JavaScript). Estudos sem
+   PMID (SciELO, OpenAlex) também são lidos. Cada estudo vira uma linha
+   padronizada: PICO, efeito com IC, comparabilidade com a alegação, risco de viés
+   (RoB 2, ROBINS-I ou AMSTAR 2), registros/coortes e tradução para o português.
+
+A síntese não é votação: cada estudo pesa por desenho × comparabilidade × risco
+de viés × acesso ao texto × situação editorial. Estudos da mesma população
+(mesmo registro ou coorte) dividem um peso; retratados (PubMed/Crossref) ficam
+com peso zero; preprints e manifestações de preocupação pesam menos. O resultado
+separa “não encontrado” de “não existe”, mostra linha do tempo e mapa de
+concordância, permite enviar o PDF de um estudo fechado para reavaliá-lo,
+verificar novos estudos (manual ou a cada `WATCH_INTERVAL_HOURS`) e exportar o
+relatório em Markdown (`GET /api/v1/analyses/<id>/report.md`) ou PDF (impressão
+do navegador). Modelos, consultas, data e parâmetros ficam registrados em
+`reproducibility`.
+
+A aplicação não contorna paywalls: para artigos fechados, envie o PDF ao qual
+você tem acesso.
+
+#### Busca e recuperação
+
+- **Fontes:** PubMed (com filtros Clinical Queries conforme o tipo da alegação:
+  Therapy, Diagnosis, Prognosis, Etiology), OpenAlex, SciELO via OpenAlex e
+  Europe PMC (título/resumo, inclui preprints). Consultas com tags do PubMed só
+  vão ao PubMed.
+- **Texto integral:** PMC, Europe PMC (também por PMID, recuperando o DOI de
+  registros antigos), todas as localizações abertas do OpenAlex, Unpaywall,
+  Semantic Scholar e CORE (`CORE_API_KEY`). Cada estudo registra as tentativas e
+  o motivo de ter ficado só no abstract (bloqueio do editor, robots.txt, sem
+  cópia aberta). Proteções anti-bot (Cloudflare) não são contornadas.
+- **Pesquisa complementar** (`POST /api/v1/analyses/<id>/claims/<claim>/complementary-search`):
+  bola de neve a partir do estudo de maior peso, consulta ampliada e termos em
+  português; estudos indiretos e neutros são descartados.
+- **ClinicalTrials.gov:** para alegações terapêuticas/preventivas, mostra ensaios
+  registrados e quantos não têm resultados (sinal de viés de publicação).
+- **Checagem de comparabilidade:** se a intervenção/exposição da alegação não
+  aparece no texto lido do estudo, a comparação é rebaixada para indireta,
+  independentemente do que o modelo disse.
+- **Prévias:** `GET /api/v1/analyses/<id>/source` devolve o texto lido do artigo
+  enviado (por página/seção); a interface destaca os trechos de origem.
+
+Chaves recomendadas: `OPENALEX_API_KEY` (sem ela a cota diária do IP se esgota e
+OpenAlex/SciELO/bola de neve param de responder), `NCBI_API_KEY` (eleva o limite
+do PubMed de 3 para 10 requisições/s) e `UNPAYWALL_EMAIL`.
+
+## 9. Executar com Docker e acompanhar logs no Grafana
+
+A stack de desenvolvimento inclui a aplicação, Grafana, Loki e Grafana Alloy. Cada
+requisição recebe um `request_id`, cada análise recebe um `analysis_id`, e as etapas
+do pipeline emitem JSON estruturado com `stage`, `status`, `duration_ms`, contagens e
+tipo de erro. Chaves de API e o texto integral dos documentos não são registrados.
+
+Com Docker Desktop/Engine em execução:
+
+```bash
+docker compose up --build -d
+docker compose ps
+```
+
+- aplicação: `http://127.0.0.1:5000`
+- Grafana: `http://127.0.0.1:3000`
+- saúde do Loki: `http://127.0.0.1:3100/ready`
+- interface de diagnóstico do Alloy: `http://127.0.0.1:12345`
+
+O login inicial do Grafana é `admin` / `admin`, a menos que
+`GRAFANA_ADMIN_USER` e `GRAFANA_ADMIN_PASSWORD` sejam definidos no `.env`. O
+datasource Loki e o dashboard **FatoFake — Execução e Logs** são provisionados
+automaticamente. O dashboard permite filtrar por nível e `analysis_id`.
+
+Comandos de operação:
+
+```bash
+docker compose logs -f app alloy loki grafana
+docker compose down
+# Remove também logs, modelos baixados e dados persistidos:
+docker compose down -v
+```
+
+Os logs da aplicação são rotacionados em arquivos JSONL de 20 MB, com cinco
+backups. O Loki mantém os dados por sete dias nesta configuração local.
+
+## 10. Solução de problemas
 
 ### `401`, `403` ou chave inválida
 

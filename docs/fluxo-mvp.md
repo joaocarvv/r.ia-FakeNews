@@ -105,7 +105,37 @@ O uso de SciELO via OpenAlex é explicitado na proveniência. O ArticleMeta perm
 
 Essa etapa cria a base de ingestão para uma experiência semelhante ao NotebookLM, mas ainda não implementa uma biblioteca persistente de múltiplos documentos nem perguntas conversacionais sobre o acervo.
 
-**Próxima etapa:** criar a biblioteca de fontes da análise, fragmentar cada documento com proveniência de página e responder perguntas apenas com citações dos trechos recuperados. Em paralelo, construir um conjunto prata para medir `Recall@K`, `Precision@K`, MRR, cobertura e duplicação residual.
+**Etapa concluída:** corrigir a busca temática no OpenAlex, expandir links PubMed com os vizinhos computacionais oficiais do ELink e separar compatibilidade textual de confiança na cobertura da verificação. O índice considera cobertura dos abstracts, quantidade de comparações diretas, atualidade, citações e ramificação; ensaios clínicos são marcados como não aplicáveis quando o artigo é de ciência básica.
+
+**Comprovação:** [`notebooks/24_validacao_verificacao_artigo.ipynb`](../notebooks/24_validacao_verificacao_artigo.ipynb).
+
+Resultados neutros são apresentados como contexto relacionado, não como confirmação. A interface nunca interpreta o índice como probabilidade de verdade nem rotula automaticamente o artigo como verdadeiro ou falso.
+
+**Etapa concluída:** priorizar texto completo do PMC, PDFs enviados e documentos abertos indicados pelo OpenAlex; extrair seções e tabelas, selecionar Resultados/Conclusão e preservar URL, seção, página e identificador de cada trecho citado. Quando XML ou HTML não oferece paginação física, a resposta declara a página como indisponível em vez de estimá-la. O abstract permanece como fallback identificado.
+
+**Comprovação:** [`notebooks/25_validacao_texto_completo_rastreavel.ipynb`](../notebooks/25_validacao_texto_completo_rastreavel.ipynb).
+
+**Etapa concluída:** consolidar a saída técnica em uma narrativa orientada ao usuário: alegação analisada, alcance real da leitura, balanço entre compatibilidade e divergência, interpretação cautelosa, trechos rastreáveis, limitações e próximo passo. Métricas de cobertura, meta-análises, ensaios e alertas permanecem disponíveis em detalhes técnicos, sem competir com a mensagem principal.
+
+**Comprovação:** [`notebooks/26_validacao_saida_coerente.ipynb`](../notebooks/26_validacao_saida_coerente.ipynb).
+
+**Etapa concluída:** extrair até quatro alegações atômicas do artigo, remover duplicatas deterministicamente, preservar o trecho, a seção e a página de origem e executar uma busca e uma análise independentes para cada alegação. A interface permite alternar entre os resultados sem misturar artigos, contagens ou conclusões de alegações diferentes.
+
+**Comprovação:** [`notebooks/27_validacao_multiplas_alegacoes.ipynb`](../notebooks/27_validacao_multiplas_alegacoes.ipynb).
+
+**Etapa concluída:** remover o índice percentual geral da apresentação e separar cobertura da busca, compatibilidade das evidências e confiança metodológica. Cobertura e compatibilidade usam contagens e denominadores explícitos; confiança metodológica é categórica e mostra a distribuição dos níveis. Citações e ramificações não aumentam a qualidade metodológica, e retratações geram alerta grave em vez de serem diluídas em uma média.
+
+**Comprovação:** [`notebooks/28_validacao_indicadores_separados.ipynb`](../notebooks/28_validacao_indicadores_separados.ipynb).
+
+**Etapa concluída:** classificar o desenho do estudo pela precedência `PublicationType do PubMed → identificador de ensaio → declaração explícita no texto → tipo documental Crossref → fallback do Gemini`. A ficha do artigo enviado separa identidade, consistência de autores, status editorial, retratação/correções, desenho e origem da classificação, amostra, protocolos, financiamento, conflitos, dados, linguagem absoluta e consistência ainda não avaliada entre resultados e conclusão. Ausências permanecem desconhecidas ou não encontradas, sem preenchimento pelo modelo.
+
+**Comprovação:** [`notebooks/29_validacao_ficha_artigo.ipynb`](../notebooks/29_validacao_ficha_artigo.ipynb).
+
+**Etapa concluída:** ampliar cada busca por alegação com consulta temática, vocabulário biomédico rastreável, descritores MeSH candidatos, revisões sistemáticas/meta-análises, DOI e primeiro autor. O fluxo também reúne vizinhos do PubMed e referências, citações e trabalhos relacionados do OpenAlex. Um reranker conservador exige cobertura dos conceitos centrais no título, registra pontuação, correspondências e motivos, e exclui coincidências lexicais fracas antes da análise de texto. Ligações e citações ampliam a cobertura, mas não são usadas como prova de qualidade.
+
+**Comprovação:** [`notebooks/30_validacao_busca_expandida_reranking.ipynb`](../notebooks/30_validacao_busca_expandida_reranking.ipynb).
+
+**Próxima etapa:** construir um conjunto de avaliação conhecido e medir Recall@K, Precision@K, qualidade dos trechos, citações inexistentes, classificação, abstenção correta e estabilidade entre execuções.
 
 ## Fluxo
 

@@ -45,19 +45,23 @@ class EvidenceChunk:
     word_start: int
     word_end: int
     text: str
+    page_number: int | None = None
 
 
 def _normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _content_sections(content: ArticleContent) -> tuple[tuple[str, str], ...]:
+def _content_sections(content: ArticleContent) -> tuple[tuple[str, str, int | None], ...]:
     if content.full_text and content.sections:
-        return tuple((section.title, section.text) for section in content.sections)
+        return tuple(
+            (section.title, section.text, section.page_number)
+            for section in content.sections
+        )
     if content.full_text:
-        return (("Texto completo", content.full_text),)
+        return (("Texto completo", content.full_text, None),)
     if content.abstract:
-        return (("Resumo", content.abstract),)
+        return (("Resumo", content.abstract, None),)
     raise ChunkingError("O artigo não possui resumo nem texto completo para recorte.")
 
 
@@ -82,13 +86,19 @@ def chunk_article_content(
     """Recorta seções sem misturá-las e preserva intervalos de palavras."""
 
     active_config = config or ChunkingConfig()
-    source_kind = "PMC_FULL_TEXT" if content.full_text else "PUBMED_ABSTRACT"
+    source_kind = (
+        "PMC_FULL_TEXT"
+        if content.full_text and content.pmcid
+        else "OPEN_ACCESS_FULL_TEXT"
+        if content.full_text
+        else "PUBMED_ABSTRACT"
+    )
     source_url = content.pmc_url if content.full_text else content.pubmed_url
     if not source_url:
         raise ChunkingError("O conteúdo não possui URL de origem.")
 
     chunks: list[EvidenceChunk] = []
-    for section_index, (section_title, section_text) in enumerate(
+    for section_index, (section_title, section_text, page_number) in enumerate(
         _content_sections(content),
         start=1,
     ):
@@ -121,6 +131,7 @@ def chunk_article_content(
                     word_start=start,
                     word_end=end,
                     text=chunk_text,
+                    page_number=page_number,
                 )
             )
             if end == len(words):

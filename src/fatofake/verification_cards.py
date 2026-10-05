@@ -25,6 +25,174 @@ def _percentage(numerator: int, denominator: int) -> int | None:
     return round(100 * numerator / denominator)
 
 
+def _article_relation(article: dict[str, Any]) -> str:
+    relations = {
+        str(item.get("relation") or "UNCERTAIN").upper()
+        for item in article.get("assessments") or ()
+    }
+    if "SUPPORTS" in relations and "CONTRADICTS" in relations:
+        return "MIXED"
+    if "CONTRADICTS" in relations:
+        return "CONTRADICTS"
+    if "SUPPORTS" in relations:
+        return "SUPPORTS"
+    if "NEUTRAL" in relations:
+        return "CONTEXT_ONLY"
+    return "INCONCLUSIVE"
+
+
+def build_verification_indicators(
+    *,
+    articles: Sequence[dict[str, Any]],
+    research_context: str,
+) -> dict[str, Any]:
+    """Separa cobertura, direção das evidências e qualidade metodológica."""
+
+    total = len(articles)
+    assessed_articles = tuple(item for item in articles if item.get("assessments"))
+    assessed = len(assessed_articles)
+    relations = Counter(_article_relation(item) for item in assessed_articles)
+    direct = relations["SUPPORTS"] + relations["CONTRADICTS"] + relations["MIXED"]
+    full_text_assessed = sum(
+        str(item.get("access_level") or "")
+        in {
+            "FULL_TEXT",
+            "OPEN_ACCESS_FULL_TEXT",
+            "LOCAL_PDF_FULL_TEXT",
+            "USER_PROVIDED_FULL_TEXT",
+        }
+        for item in assessed_articles
+    )
+
+    if not total:
+        coverage_status = "NOT_AVAILABLE"
+        coverage_label = "Busca sem documentos recuperados"
+    elif not assessed:
+        coverage_status = "NOT_ASSESSED"
+        coverage_label = "Documentos recuperados, mas ainda não analisados"
+    elif assessed < total:
+        coverage_status = "PARTIAL"
+        coverage_label = "Cobertura parcial dos documentos recuperados"
+    elif full_text_assessed == assessed:
+        coverage_status = "FULL_TEXT"
+        coverage_label = "Todos os documentos analisados com texto completo"
+    else:
+        coverage_status = "ABSTRACT_INCLUDED"
+        coverage_label = "Todos analisados, com uso de abstracts"
+
+    if relations["MIXED"] or (relations["SUPPORTS"] and relations["CONTRADICTS"]):
+        compatibility_status = "DIVERGENT"
+        compatibility_label = "Evidências divergentes"
+    elif relations["SUPPORTS"]:
+        compatibility_status = "COMPATIBLE"
+        compatibility_label = "Compatível com as evidências recuperadas"
+    elif relations["CONTRADICTS"]:
+        compatibility_status = "POTENTIAL_INCOMPATIBILITY"
+        compatibility_label = "Possível incompatibilidade"
+    elif relations["CONTEXT_ONLY"]:
+        compatibility_status = "CONTEXT_ONLY"
+        compatibility_label = "Somente contexto relacionado"
+    else:
+        compatibility_status = "NOT_COMPARABLE"
+        compatibility_label = "Não foi possível comparar"
+
+    quality_counts: Counter[str] = Counter()
+    study_design_counts: Counter[str] = Counter()
+    retracted_count = 0
+    registered_protocol_count = 0
+    data_available_count = 0
+    for article in assessed_articles:
+        quality = article.get("quality") or {}
+        level = str(quality.get("level") or "UNKNOWN").upper()
+        if level == "UNCLEAR":
+            level = "UNKNOWN"
+        if level not in {"HIGH", "MODERATE", "LOW", "UNKNOWN"}:
+            level = "UNKNOWN"
+        quality_counts[level] += 1
+        study_design = str(quality.get("study_design") or "UNKNOWN").upper()
+        study_design_counts[study_design] += 1
+        retracted_count += bool(quality.get("is_retracted"))
+        registered_protocol_count += bool(quality.get("trial_registrations"))
+        data_available_count += bool(quality.get("datasets"))
+
+    known_levels = {
+        level for level in ("HIGH", "MODERATE", "LOW") if quality_counts[level]
+    }
+    if retracted_count:
+        methodological_level = "CRITICAL_ALERT"
+        methodological_label = "Alerta grave: há artigo retratado"
+    elif not known_levels:
+        methodological_level = "UNKNOWN"
+        methodological_label = "Confiança metodológica desconhecida"
+    elif len(known_levels) == 1 and not quality_counts["UNKNOWN"]:
+        methodological_level = next(iter(known_levels))
+        methodological_label = {
+            "HIGH": "Confiança metodológica alta",
+            "MODERATE": "Confiança metodológica moderada",
+            "LOW": "Confiança metodológica baixa",
+        }[methodological_level]
+    else:
+        methodological_level = "MIXED"
+        methodological_label = "Confiança metodológica heterogênea"
+
+    return {
+        "search_coverage": {
+            "status": coverage_status,
+            "label": coverage_label,
+            "retrieved_count": total,
+            "assessed_count": assessed,
+            "directly_comparable_count": direct,
+            "full_text_count": full_text_assessed,
+            "abstract_only_count": assessed - full_text_assessed,
+            "explanation": (
+                f"{assessed} de {total} documentos recuperados foram analisados; "
+                f"{full_text_assessed} com texto completo e {direct} responderam "
+                "diretamente à alegação."
+            ),
+        },
+        "evidence_compatibility": {
+            "status": compatibility_status,
+            "label": compatibility_label,
+            "supporting_count": relations["SUPPORTS"],
+            "contradicting_count": relations["CONTRADICTS"],
+            "mixed_count": relations["MIXED"],
+            "context_only_count": relations["CONTEXT_ONLY"],
+            "inconclusive_count": relations["INCONCLUSIVE"],
+            "compared_article_count": assessed,
+            "explanation": (
+                f"Entre {assessed} artigos analisados: {relations['SUPPORTS']} compatíveis, "
+                f"{relations['CONTRADICTS']} divergentes, {relations['MIXED']} mistos, "
+                f"{relations['CONTEXT_ONLY']} apenas contextuais e "
+                f"{relations['INCONCLUSIVE']} inconclusivos."
+            ),
+        },
+        "methodological_confidence": {
+            "level": methodological_level,
+            "label": methodological_label,
+            "assessed_article_count": assessed,
+            "quality_counts": {
+                "HIGH": quality_counts["HIGH"],
+                "MODERATE": quality_counts["MODERATE"],
+                "LOW": quality_counts["LOW"],
+                "UNKNOWN": quality_counts["UNKNOWN"],
+            },
+            "study_design_counts": dict(sorted(study_design_counts.items())),
+            "retracted_count": retracted_count,
+            "registered_protocol_count": registered_protocol_count,
+            "data_available_count": data_available_count,
+            "clinical_registration_applicable": research_context == "CLINICAL",
+            "explanation": (
+                f"Qualidade informada para {assessed} artigos: "
+                f"{quality_counts['HIGH']} alta, {quality_counts['MODERATE']} moderada, "
+                f"{quality_counts['LOW']} baixa e {quality_counts['UNKNOWN']} desconhecida; "
+                f"{registered_protocol_count} com protocolo localizado, "
+                f"{data_available_count} com dados associados e {retracted_count} retratados. "
+                "Citações e ramificações não alteram esta classificação."
+            ),
+        },
+    }
+
+
 def detect_language_alerts(claim: str) -> list[dict[str, Any]]:
     """Detecta somente padrões explícitos; não tenta julgar a alegação."""
 
@@ -96,6 +264,13 @@ def build_unassessed_cards(
         )
 
     return {
+        "indicators": build_verification_indicators(
+            articles=tuple(
+                {"assessments": [], "quality": {}}
+                for _index in range(retrieved_article_count)
+            ),
+            research_context="UNKNOWN",
+        ),
         "partial_verification": {
             "status": "NOT_EVALUATED",
             "percentage": None,
@@ -134,9 +309,15 @@ def build_abstract_analysis_cards(
     assessments: Sequence[Any],
     content_failure_count: int = 0,
 ) -> dict[str, Any]:
-    """Resume a análise de abstracts sem alegar validação de texto completo."""
+    """Resume os trechos analisados e explicita seu nível de acesso."""
 
     assessed = tuple(assessments)
+    full_text_count = sum(
+        getattr(item, "content_scope", "ABSTRACT")
+        in {"FULL_TEXT", "OPEN_ACCESS_FULL_TEXT"}
+        for item in assessed
+    )
+    abstract_count = len(assessed) - full_text_count
     meta = tuple(
         item
         for item in assessed
@@ -152,12 +333,13 @@ def build_abstract_analysis_cards(
     alerts = detect_language_alerts(claim)
     alerts.append(
         {
-            "code": "ABSTRACT_ONLY_ANALYSIS",
+            "code": "CONTENT_SCOPE",
             "severity": "INFO",
-            "title": "Análise limitada aos abstracts",
+            "title": "Escopo dos textos analisados",
             "detail": (
-                "A compatibilidade foi estimada a partir dos resumos. Métodos, "
-                "tabelas e resultados completos ainda não foram verificados."
+                f"{full_text_count} artigo(s) foram analisados com texto completo e "
+                f"{abstract_count} somente pelo abstract. Cada trecho informa seção "
+                "e página quando a fonte fornece paginação."
             ),
             "source_url": None,
         }
@@ -188,23 +370,47 @@ def build_abstract_analysis_cards(
     if content_failure_count:
         alerts.append(
             {
-                "code": "ABSTRACT_RETRIEVAL_FAILURES",
+                "code": "CONTENT_RETRIEVAL_FAILURES",
                 "severity": "WARNING",
-                "title": "Alguns abstracts não puderam ser obtidos",
-                "detail": f"Falha na recuperação de {content_failure_count} abstract(s).",
+                "title": "Alguns textos não puderam ser obtidos",
+                "detail": f"Falha na recuperação de {content_failure_count} conteúdo(s).",
                 "source_url": None,
             }
         )
 
     return {
+        "indicators": build_verification_indicators(
+            articles=tuple(
+                {
+                    "access_level": getattr(item, "content_scope", "ABSTRACT_ONLY"),
+                    "assessments": [{"relation": item.relation}],
+                    "quality": {
+                        "level": "UNKNOWN",
+                        "study_design": item.study_design,
+                        "is_retracted": False,
+                        "trial_registrations": [],
+                        "datasets": [],
+                    },
+                }
+                for item in assessed
+            )
+            + tuple(
+                {"assessments": [], "quality": {}}
+                for _index in range(max(0, retrieved_article_count - len(assessed)))
+            ),
+            research_context="UNKNOWN",
+        ),
         "partial_verification": {
             "status": "AVAILABLE" if assessed else "NOT_EVALUATED",
             "percentage": _percentage(len(assessed), retrieved_article_count),
             "verified_count": len(assessed),
             "total_count": retrieved_article_count,
+            "full_text_count": full_text_count,
+            "abstract_only_count": abstract_count,
+            "full_text_percentage": _percentage(full_text_count, len(assessed)),
             "explanation": (
                 f"{len(assessed)} de {retrieved_article_count} artigo(s) recuperados "
-                "tiveram o abstract analisado. Este percentual mede cobertura, não verdade."
+                "tiveram trechos analisados. Este percentual mede cobertura, não verdade."
             ),
         },
         "meta_analysis": {
@@ -218,10 +424,10 @@ def build_abstract_analysis_cards(
             "not_comparable_count": len(meta) - len(comparable_meta),
             "explanation": (
                 f"{len(comparable_meta)} meta-análise(s) foram comparadas; "
-                f"{compatible_meta} apresentaram resultado compatível no abstract. "
+                f"{compatible_meta} apresentaram resultado compatível nos trechos. "
                 f"{len(meta) - len(comparable_meta)} não responderam diretamente à alegação."
                 if comparable_meta
-                else "Nenhuma meta-análise comparável foi identificada nos abstracts."
+                else "Nenhuma meta-análise comparável foi identificada nos trechos analisados."
             ),
         },
         "clinical_trials": {
@@ -338,7 +544,40 @@ def build_analysis_cards(analysis: Any) -> dict[str, Any]:
             }
         )
 
+    indicator_articles = tuple(
+        {
+            "access_level": getattr(
+                getattr(item, "content", None), "access_level", "UNKNOWN"
+            ),
+            "assessments": [
+                {"relation": assessment.relation.value}
+                for assessment in getattr(item, "assessments", ())
+            ],
+            "quality": {
+                "level": getattr(
+                    getattr(item.quality_report, "quality_level", None),
+                    "value",
+                    "UNKNOWN",
+                ),
+                "study_design": item.quality_report.study_design.value,
+                "is_retracted": item.quality_report.is_retracted,
+                "trial_registrations": list(
+                    getattr(item.quality_report, "trial_registrations", ())
+                ),
+                "datasets": list(getattr(item.quality_report, "datasets", ())),
+            },
+        }
+        for item in articles
+    ) + tuple(
+        {"assessments": [], "quality": {}}
+        for _failure in failures
+    )
+
     return {
+        "indicators": build_verification_indicators(
+            articles=indicator_articles,
+            research_context="UNKNOWN",
+        ),
         "partial_verification": {
             "status": "AVAILABLE" if usable_pmids else "NOT_EVALUATED",
             "percentage": coverage,
