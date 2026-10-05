@@ -7,3 +7,4 @@ artifacts/
 .github/instructions/mermaid.instructions.md
 docs/EDA_PubMed_Grupo08.docx
 docs/EDA_PubMed_Grupo08.docx
+venv/
