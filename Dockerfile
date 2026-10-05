@@ -45,10 +45,10 @@ RUN if [ "$INSTALL_CRAWL4AI" = "true" ]; then \
         && chmod -R a+rX /opt/ms-playwright; \
     fi
 
-# ── Código-fonte, dados e notebooks ───────────────────────────────
+# ── Código-fonte e scripts ────────────────────────────────────────
+# notebooks/ e data/ são montados como volumes no docker-compose.yml
 COPY src/ ./src/
-COPY notebooks/ ./notebooks/
-COPY data/ ./data/
+RUN mkdir -p /app/notebooks /app/data
 COPY run_acceptance_app.py ./
 COPY openapi.yaml ./
 COPY start.sh ./
