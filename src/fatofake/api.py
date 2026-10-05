@@ -1002,9 +1002,10 @@ class AnalysisJobService:
             "sections": [
                 {"title": item[0], "text": item[1]} for item in resolved.get("sections") or []
             ],
-            "text": "" if resolved.get("pages") or resolved.get("sections") else resolved.get("text") or "",
+            "text": resolved.get("text") or "",
             "claims": [
-                {"claim_id": item.get("claim_id"), "quote": item.get("quote"), "page": item.get("page")}
+                {"claim_id": item.get("claim_id"), "text": item.get("text"),
+                 "quote": item.get("quote"), "page": item.get("page"), "section": item.get("section")}
                 for item in extracted.get("claims") or []
             ],
         }
@@ -1320,7 +1321,16 @@ def create_app(
         if not isinstance(payload, dict):
             return _error_response("INVALID_JSON", "O JSON enviado é inválido.", 400)
         try:
-            return jsonify(article_search.search(payload.get("topic"), article_type=payload.get("article_type", "ALL")))
+            return jsonify(article_search.search(
+                payload.get("topic"),
+                article_type=payload.get("article_type", "ALL"),
+                availability=payload.get("availability", "ALL"),
+                indexing=payload.get("indexing", "MEDLINE"),
+                language=payload.get("language", "ALL"),
+                page=payload.get("page", 1),
+                page_size=payload.get("page_size", 20),
+                prepared_query=payload.get("prepared_query"),
+            ))
         except InputValidationError as error:
             return _error_response("INVALID_INPUT", str(error), 400)
         except PubMedError:

@@ -79,7 +79,7 @@ def build_verification_indicators(
         coverage_label = "Todos os documentos analisados com texto completo"
     else:
         coverage_status = "ABSTRACT_INCLUDED"
-        coverage_label = "Todos analisados, com uso de abstracts"
+        coverage_label = "Todos analisados, com uso de resumos"
 
     if relations["MIXED"] or (relations["SUPPORTS"] and relations["CONTRADICTS"]):
         compatibility_status = "DIVERGENT"
@@ -358,7 +358,7 @@ def build_abstract_analysis_cards(
             "title": "Escopo dos textos analisados",
             "detail": (
                 f"{full_text_count} artigo(s) foram analisados com texto completo e "
-                f"{abstract_count} somente pelo abstract. Cada trecho informa seção "
+                f"{abstract_count} somente pelo resumo. Cada trecho informa seção "
                 "e página quando a fonte fornece paginação."
             ),
             "source_url": None,

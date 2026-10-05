@@ -159,7 +159,7 @@ def build_article_dossier(
         "editorial_status": {
             "peer_review": "PREPRINT" if is_preprint else "UNKNOWN",
             "peer_review_explanation": (
-                "O documento foi identificado como preprint."
+                "O documento foi identificado como pré-publicação."
                 if is_preprint
                 else "Indexação e presença em periódico não confirmam revisão por pares."
             ),

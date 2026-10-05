@@ -3,7 +3,7 @@ import unittest
 from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -14,6 +14,8 @@ from fatofake import (
     OpenAlexClient,
     OpenAlexGraphExplorer,
     OpenAlexSearchProvider,
+    PubMedSearchProvider,
+    Publication,
     ProviderSearchResult,
     RetrievalError,
     SCIELO_SOURCE_LIST_FILTER,
@@ -258,6 +260,32 @@ class OpenAlexProviderTests(unittest.TestCase):
 
 
 class FederatedSearchEngineTests(unittest.TestCase):
+    def test_pubmed_provider_can_require_medline_for_comparison_articles(self):
+        client = Mock()
+        client.search_ids.return_value = (1, ("123",))
+        client.fetch_summaries.return_value = (
+            Publication(
+                pmid="123",
+                title="Indexed study",
+                authors=(),
+                journal="Journal",
+                publication_date="2025",
+                doi=None,
+                url="https://pubmed.ncbi.nlm.nih.gov/123/",
+                matched_queries=(),
+            ),
+        )
+
+        result = PubMedSearchProvider(client, require_medline=True).search(
+            "diabetes", max_results=5
+        )
+
+        client.search_ids.assert_called_once_with(
+            "(diabetes) AND medline[sb]", max_results=5
+        )
+        self.assertTrue(result.works[0].is_medline)
+        self.assertIn("medline[sb]", result.query)
+
     def test_combines_sources_deduplicates_and_separates_unresolved_works(self):
         query = "coffee prostate cancer"
         pubmed = ProviderStub(

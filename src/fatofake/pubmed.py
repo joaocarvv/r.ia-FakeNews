@@ -37,6 +37,10 @@ class Publication:
     matched_queries: tuple[str, ...]
     source: str = "PubMed"
     publication_types: tuple[str, ...] = ()
+    pmcid: str | None = None
+    is_medline: bool = False
+    languages: tuple[str, ...] = ()
+    vernacular_title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -110,12 +114,25 @@ class PubMedClient:
             params["api_key"] = self.api_key
         return params
 
-    def search_ids(self, query: str, *, max_results: int) -> tuple[int, tuple[str, ...]]:
+    def search_ids(
+        self,
+        query: str,
+        *,
+        max_results: int,
+        start: int = 0,
+    ) -> tuple[int, tuple[str, ...]]:
         if not 1 <= max_results <= 100:
             raise ValueError("max_results deve estar entre 1 e 100.")
+        if start < 0:
+            raise ValueError("start não pode ser negativo.")
 
         params = self._common_params()
-        params.update({"term": query, "retmax": str(max_results), "sort": "relevance"})
+        params.update({
+            "term": query,
+            "retmax": str(max_results),
+            "retstart": str(start),
+            "sort": "relevance",
+        })
         payload = self._fetch_json("esearch.fcgi", params)
 
         try:
@@ -158,6 +175,21 @@ class PubMedClient:
                 break
         return tuple(links)
 
+    def filter_medline_ids(self, identifiers: tuple[str, ...]) -> tuple[str, ...]:
+        """Mantém somente PMIDs confirmados pelo subconjunto MEDLINE do PubMed."""
+
+        if not identifiers:
+            return ()
+        if len(identifiers) > 100 or any(not identifier.isdigit() for identifier in identifiers):
+            raise ValueError("A filtragem MEDLINE aceita de 1 a 100 PMIDs numéricos.")
+        identifier_query = " OR ".join(f"{identifier}[PMID]" for identifier in identifiers)
+        _total, medline_ids = self.search_ids(
+            f"({identifier_query}) AND medline[sb]",
+            max_results=len(identifiers),
+        )
+        accepted = set(medline_ids)
+        return tuple(identifier for identifier in identifiers if identifier in accepted)
+
     def fetch_summaries(
         self,
         identifiers: tuple[str, ...],
@@ -192,6 +224,15 @@ class PubMedClient:
                 ),
                 None,
             )
+            pmcid = next(
+                (
+                    str(article_id.get("value")).strip().upper()
+                    for article_id in article_ids
+                    if article_id.get("idtype") in {"pmc", "pmcid"}
+                    and article_id.get("value")
+                ),
+                None,
+            )
             authors = tuple(
                 str(author.get("name")).strip()
                 for author in (document.get("authors") or [])
@@ -203,6 +244,19 @@ class PubMedClient:
                 str(item).strip()
                 for item in (document.get("pubtype") or ())
                 if str(item).strip()
+            )
+            languages = tuple(
+                str(item).strip().casefold()
+                for item in (document.get("lang") or ())
+                if str(item).strip()
+            )
+            vernacular_title = str(document.get("vernaculartitle") or "").strip() or None
+            record_status = str(document.get("recordstatus") or "").casefold()
+            history = document.get("history") or ()
+            is_medline = "indexed for medline" in record_status or any(
+                str(event.get("pubstatus") or "").casefold() == "medline"
+                for event in history
+                if isinstance(event, dict)
             )
 
             publications.append(
@@ -216,6 +270,10 @@ class PubMedClient:
                     url=f"https://pubmed.ncbi.nlm.nih.gov/{identifier}/",
                     matched_queries=matched_queries.get(identifier, ()),
                     publication_types=publication_types,
+                    pmcid=pmcid,
+                    is_medline=is_medline,
+                    languages=languages,
+                    vernacular_title=vernacular_title,
                 )
             )
 

@@ -15,7 +15,7 @@ RELATION_LABELS = {
 EDITORIAL_LABELS = {
     "RETRACTED": "RETRATADO",
     "EXPRESSION_OF_CONCERN": "Manifestação de preocupação",
-    "PREPRINT": "Preprint (sem revisão por pares)",
+    "PREPRINT": "Pré-publicação (sem revisão por pares)",
     "CORRECTED": "Com correção publicada",
 }
 

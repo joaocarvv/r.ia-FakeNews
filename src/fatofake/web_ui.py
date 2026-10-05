@@ -1,4 +1,4 @@
-"""Interface web mínima para testes de aceitação do fluxo científico."""
+"""Área de pesquisa e leitura de artigos científicos."""
 
 from __future__ import annotations
 
@@ -240,67 +240,162 @@ WEB_UI_HTML = r"""<!doctype html>
       .weight-bar { grid-template-columns: 100px 1fr 48px; }
     }
   </style>
+  <link rel="stylesheet" href="/static/workspace.css">
 </head>
 <body>
-  <main class="shell">
-    <header>
-      <div>
-        <div class="eyebrow">Residência em Inteligência Artificial</div>
-        <h1>Fato ou Fake?</h1>
-        <p class="subtitle">Envie um artigo para organizar sua leitura e localizar estudos relacionados exclusivamente no PubMed, com texto completo pelo PubMed Central quando disponível.</p>
-      </div>
-      <div class="mode">__MODE_LABEL__</div>
+  <a class="skip-link" href="#workspace">Ir para a pesquisa</a>
+  <aside class="sidebar" aria-label="Navegação principal">
+    <a class="brand" href="/" aria-label="Fato ou Fake? Início"><span class="brand-mark" aria-hidden="true">f.</span><span>Fato ou Fake?<small>Literatura em contexto</small></span></a>
+    <div class="sidebar-caption">ÁREA DE PESQUISA</div>
+    <nav class="side-nav">
+      <button type="button" data-entry="search" class="nav-item is-active"><span aria-hidden="true">⌕</span>Pesquisar artigos</button>
+      <button type="button" data-entry="link" class="nav-item"><span aria-hidden="true">▤</span>Analisar um artigo</button>
+      <button type="button" id="guide-open" class="nav-item"><span aria-hidden="true">ⓘ</span>Como funciona</button>
+    </nav>
+    <div class="sidebar-note"><span class="small-label">FONTES DE PESQUISA</span><div class="source-logos"><span>PubMed</span><span>PMC</span></div><p>Artigos, trechos e fontes disponíveis para você conferir.</p></div>
+    <div class="sidebar-bottom"><span class="academic-dot"></span>Projeto acadêmico<small>Residência em Inteligência Artificial</small></div>
+  </aside>
+  <main id="workspace" class="shell">
+    <div class="topbar"><span>Área de trabalho <span class="breadcrumb-separator">/</span> <strong>Pesquisa científica</strong></span><div class="source-status" title="__MODE_LABEL__"><span></span>PubMed + PMC</div></div>
+    <header class="workspace-header">
+      <div class="eyebrow">LEITURA CIENTÍFICA ASSISTIDA</div>
+      <h1>Uma leitura mais clara.<br><span>Com as fontes à vista.</span></h1>
+      <p class="subtitle">Encontre estudos sobre um tema ou traga um artigo. Organize a leitura e compare os trechos com outras pesquisas.</p>
+      <button id="change-source" type="button" class="secondary change-source" hidden>Começar outra leitura</button>
     </header>
-
-    <section class="panel form-panel" aria-labelledby="topic-title" style="margin-bottom:24px">
+    <ol class="workflow" aria-label="Etapas da pesquisa">
+      <li data-step="1" class="is-current" aria-current="step"><span>01</span><div>Escolha a fonte<small>Pesquise ou envie um artigo</small></div></li>
+      <li data-step="2"><span>02</span><div>Revise a leitura<small>Confira o que foi extraído</small></div></li>
+      <li data-step="3"><span>03</span><div>Explore as evidências<small>Compare e confira os trechos</small></div></li>
+    </ol>
+    <section class="entry-workspace panel" aria-label="Começar uma pesquisa">
+      <div class="entry-tabs" role="tablist" aria-label="Origem do artigo">
+        <button id="tab-search" type="button" role="tab" aria-selected="true" aria-controls="topic-workspace" data-entry="search" class="entry-tab is-active">Pesquisar por tema</button>
+        <button id="tab-link" type="button" role="tab" aria-selected="false" aria-controls="article-workspace" data-entry="link" class="entry-tab" tabindex="-1">Inserir link ou DOI</button>
+        <button id="tab-upload" type="button" role="tab" aria-selected="false" aria-controls="article-workspace" data-entry="upload" class="entry-tab" tabindex="-1">Enviar arquivo</button>
+      </div>
+      <div class="entry-body">
+      <div class="entry-main">
+    <section id="topic-workspace" class="form-panel" role="tabpanel" aria-labelledby="tab-search">
+      <div class="section-eyebrow">COMECE COM UMA PERGUNTA</div>
       <h2 id="topic-title">Encontre artigos por tema</h2>
-      <p class="hint">Descreva o que quer pesquisar, inclusive em português. A busca organiza os termos e consulta somente o PubMed.</p>
+      <p class="form-intro">O que você quer entender melhor? Pode escrever em português.</p>
       <form id="topic-form">
         <div class="field">
-          <label for="topic-input">Tema ou pergunta de pesquisa</label>
+          <label for="topic-input">Seu tema de pesquisa</label>
           <input id="topic-input" minlength="2" maxlength="300" required placeholder="Ex.: exercício físico e diabetes tipo 2">
         </div>
-        <div class="field">
-          <label for="topic-type">Tipo de artigo</label>
-          <select id="topic-type">
-            <option value="ALL">Todos os tipos</option>
-            <option value="REVIEWS">Revisões sistemáticas e meta-análises</option>
-            <option value="TRIALS">Ensaios randomizados</option>
-          </select>
+        <div class="topic-filters">
+          <div class="field filter-field">
+            <label for="topic-type">Tipo de artigo</label>
+            <select id="topic-type">
+              <option value="ALL">Todos os tipos</option>
+              <option value="REVIEWS">Revisões sistemáticas e meta-análises</option>
+              <option value="TRIALS">Ensaios clínicos randomizados</option>
+            </select>
+          </div>
+          <div class="field filter-field">
+            <label for="topic-availability">Disponibilidade</label>
+            <select id="topic-availability">
+              <option value="ALL">Qualquer disponibilidade</option>
+              <option value="PMC_FULL_TEXT">Texto completo gratuito no PMC</option>
+            </select>
+          </div>
+          <div class="field filter-field">
+            <label for="topic-indexing">Indexação</label>
+            <select id="topic-indexing">
+              <option value="MEDLINE" selected>Somente indexados no MEDLINE</option>
+              <option value="ALL">Todos os registros do PubMed</option>
+            </select>
+          </div>
+          <div class="field filter-field">
+            <label for="topic-language">Idioma do artigo</label>
+            <select id="topic-language">
+              <option value="ALL">Todos os idiomas</option>
+              <option value="PORTUGUESE">Português</option>
+              <option value="ENGLISH">Inglês</option>
+              <option value="SPANISH">Espanhol</option>
+              <option value="FRENCH">Francês</option>
+              <option value="GERMAN">Alemão</option>
+              <option value="ITALIAN">Italiano</option>
+            </select>
+          </div>
+          <div class="field filter-field filter-field-small">
+            <label for="topic-page-size">Por página</label>
+            <select id="topic-page-size">
+              <option value="10">10 artigos</option>
+              <option value="20" selected>20 artigos</option>
+              <option value="50">50 artigos</option>
+            </select>
+          </div>
         </div>
-        <button id="topic-submit" type="submit">Pesquisar no PubMed</button>
+        <button id="topic-submit" type="submit">Pesquisar no PubMed <span aria-hidden="true">↗</span></button>
+        <div class="suggestions" aria-label="Sugestões de pesquisa"><span>Experimente</span><button type="button" data-topic="Exercício físico e diabetes tipo 2">Exercício e diabetes</button><button type="button" data-topic="Terapia gênica para doenças hereditárias">Terapia gênica</button><button type="button" data-topic="Sono e saúde cardiovascular">Sono e saúde</button></div>
       </form>
       <p id="topic-status" class="hint" role="status" aria-live="polite"></p>
       <div id="topic-results"></div>
     </section>
 
-    <section class="panel form-panel" aria-labelledby="form-title">
+    <section id="article-workspace" class="form-panel" role="tabpanel" aria-labelledby="tab-link" hidden>
+      <div class="section-eyebrow">JÁ TEM UM ARTIGO?</div>
       <h2 id="form-title">Qual artigo você quer verificar?</h2>
+      <p id="article-entry-description" class="form-intro">Cole a referência para começar a leitura.</p>
       <form id="analysis-form">
-        <div class="field">
+        <div id="link-field" class="field">
           <label for="article-reference">PMID, link do PubMed ou DOI indexado no PubMed</label>
           <input id="article-reference" maxlength="500" placeholder="PMID, https://pubmed.ncbi.nlm.nih.gov/... ou 10.xxxx/...">
-          <p class="hint">A pesquisa externa usa somente PubMed/PMC. Informe um link/DOI ou escolha um arquivo abaixo — não os dois.</p>
+          <p class="hint">A referência precisa estar indexada no PubMed.</p>
         </div>
-        <div class="field">
+        <div id="upload-field" class="field" hidden>
           <label for="article-file">Imagem ou arquivo do artigo</label>
+          <div id="upload-zone" class="upload-zone">
+            <span class="upload-icon" aria-hidden="true">↥</span><strong>Solte seu artigo aqui</strong><span>ou clique para escolher um arquivo</span>
           <input id="article-file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp">
+          </div>
+          <p id="upload-name" class="hint" role="status"></p>
           <p class="hint">Formatos aceitos: PDF, PNG, JPEG e WebP, com até 25 MB.</p>
         </div>
         <div class="actions">
           <button id="submit" type="submit">Verificar artigo</button>
-          <div class="safety">A ferramenta não oferece diagnóstico nem substitui profissionais de saúde. Ela pode errar e deve manter as fontes disponíveis para conferência.</div>
+          <span class="hint">Você revisa a leitura antes da comparação.</span>
         </div>
       </form>
+    </section>
+      </div>
+      <aside class="entry-context">
+        <div class="context-orbit" aria-hidden="true"><div class="orbit-ring orbit-one"></div><div class="orbit-ring orbit-two"></div><span class="orbit-node node-one"></span><span class="orbit-node node-two"></span><span class="orbit-core">f.</span></div>
+        <h3>Do artigo ao contexto.</h3><p>Uma leitura organizada, com os trechos originais sempre por perto.</p>
+        <ul class="context-list"><li><span aria-hidden="true">▤</span>Estudos recuperados no PubMed</li><li><span aria-hidden="true">⌖</span>Citações com fonte e seção</li><li><span aria-hidden="true">◉</span>Limites da leitura visíveis</li></ul>
+        <p class="context-footnote">A presença no PubMed não garante a qualidade de um estudo.</p>
+      </aside>
+      </div>
+      <div class="workspace-bottom"><span>Pesquisa com fontes rastreáveis</span><span>PubMed / PMC</span></div>
+    </section>
+    <div class="safety-note">A ferramenta não oferece diagnóstico nem substitui profissionais de saúde. Confira as fontes e as interpretações.</div>
       <div id="status" role="status" aria-live="polite">
         <div class="status-row"><span id="status-text">Preparando análise…</span><span id="progress-text">0%</span></div>
-        <div class="progress" aria-hidden="true"><div id="progress-bar"></div></div>
+        <div class="progress" role="progressbar" aria-label="Progresso da análise" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-bar"></div></div>
+        <p id="progress-detail" class="progress-detail">Aguardando o início do processamento.</p>
+        <ol id="progress-stages" class="progress-stages" aria-label="Etapas do processamento">
+          <li data-progress-stage="prepare">Preparar fonte</li>
+          <li data-progress-stage="read">Ler e organizar</li>
+          <li data-progress-stage="review">Revisar conteúdo</li>
+          <li data-progress-stage="research">Buscar evidências</li>
+          <li data-progress-stage="finish">Finalizar</li>
+        </ol>
       </div>
       <div id="error" role="alert"></div>
-    </section>
+
+    <details id="source-reader" class="panel source-reader" hidden open>
+      <summary>Artigo fonte e alegações marcadas</summary>
+      <div class="reader-heading"><div><div class="kicker">TEXTO ORIGINAL</div><h2 id="reader-title">Artigo enviado</h2><p id="reader-scope" class="article-meta"></p></div><span class="reader-legend"><mark>Trecho de origem</mark> Passe o mouse ou toque para explorar.</span></div>
+      <p id="reader-status" role="status" aria-live="polite"></p>
+      <button id="reader-retry" type="button" class="secondary" hidden>Tentar carregar o texto novamente</button>
+      <div class="reader-layout"><article id="reader-document" aria-label="Texto disponível do artigo"></article><aside id="reader-sidebar" aria-label="Alegações extraídas do artigo"></aside></div>
+    </details>
 
     <section id="whole-article-report" class="panel document-report" aria-labelledby="whole-report-title">
-      <div class="kicker">Leitura integral da fonte principal</div>
+      <div class="kicker">02 · Leitura da fonte principal</div>
       <h2 id="whole-report-title">Dossiê do artigo</h2>
       <div id="whole-coverage" class="coverage-banner"></div>
       <button id="open-source-preview" type="button" class="secondary">Ver o artigo enviado (texto lido)</button>
@@ -311,7 +406,7 @@ WEB_UI_HTML = r"""<!doctype html>
       <div id="whole-study" class="study-grid"></div>
       <div class="report-columns">
         <section class="report-subpanel"><h3>Principais resultados</h3><div id="whole-findings"></div></section>
-        <section class="report-subpanel"><h3>Leitura crítica</h3><div id="whole-critical"></div></section>
+        <section class="report-subpanel"><h3>Limitações declaradas</h3><div id="whole-critical"></div></section>
       </div>
       <div class="report-columns">
         <section class="report-subpanel"><h3>Tabelas e figuras</h3><div id="whole-tables"></div></section>
@@ -330,11 +425,11 @@ WEB_UI_HTML = r"""<!doctype html>
     <section id="claim-review" class="panel" aria-labelledby="claim-review-title">
       <div class="kicker">Etapa 2 de 3 · revisão humana antes da busca</div>
       <h2 id="claim-review-title">Escolha quais alegações investigar</h2>
-      <p class="review-intro">A leitura do artigo terminou. Cada cartão traz a afirmação normalizada, o trecho de origem, o tipo e o PICO. Corrija o texto se a extração perdeu contexto: o sistema refaz PICO e consultas antes de buscar. A investigação procura evidência em qualquer direção — a favor, contra ou neutra.</p>
+      <p class="review-intro">Confira as afirmações e os trechos de origem. Você pode corrigir o texto e escolher o que deseja comparar com outras pesquisas.</p>
       <div id="review-claims" class="review-list"></div>
       <div class="depth-options" role="radiogroup" aria-label="Profundidade da busca">
         <label class="depth-option"><input type="radio" name="depth" value="QUICK" checked><span><strong>Busca rápida</strong><span id="depth-quick-detail" class="article-meta"></span></span></label>
-        <label class="depth-option"><input type="radio" name="depth" value="DEEP"><span><strong>Revisão profunda</strong><span id="depth-deep-detail" class="article-meta"></span></span></label>
+        <label class="depth-option"><input type="radio" name="depth" value="DEEP"><span><strong>Busca ampliada</strong><span id="depth-deep-detail" class="article-meta"></span></span></label>
       </div>
       <div id="research-estimate" class="estimate"></div>
       <div class="actions">
@@ -483,7 +578,7 @@ WEB_UI_HTML = r"""<!doctype html>
       <div id="preview-body" class="preview-body"></div>
     </dialog>
 
-    <footer>Protótipo acadêmico. O sistema avalia compatibilidade com o corpus recuperado, não uma verdade médica absoluta.</footer>
+    <footer><span>Fato ou Fake? · Projeto acadêmico</span><span>Qualidade metodológica não avaliada automaticamente.</span></footer>
   </main>
   <script>
     const form = document.getElementById('analysis-form');
@@ -504,11 +599,33 @@ WEB_UI_HTML = r"""<!doctype html>
     let activeClaimId = null;
     let complementaryTimer = null;
     let activeEstimates = null;
+    let activeTopicQuery = null;
+    let activeTopicMode = null;
     const relationLabels = {SUPPORTS: 'Compatível', CONTRADICTS: 'Incompatível', NEUTRAL: 'Neutro', UNCERTAIN: 'Incerto', NOT_ASSESSED: 'Não lido'};
-    const editorialLabels = {RETRACTED: 'Retratado', EXPRESSION_OF_CONCERN: 'Manifestação de preocupação', PREPRINT: 'Preprint', CORRECTED: 'Com correção'};
+    const editorialLabels = {RETRACTED: 'Retratado', EXPRESSION_OF_CONCERN: 'Manifestação de preocupação', PREPRINT: 'Pré-publicação', CORRECTED: 'Com correção'};
+    const statusLabels = {
+      UNKNOWN: 'Não informado', UNRESOLVED: 'Não resolvido', FOUND: 'Localizado', NOT_FOUND: 'Não localizado',
+      CONFIRMED: 'Confirmado', MATCH: 'Compatível', MISMATCH: 'Divergente', INCONCLUSIVE: 'Inconclusivo',
+      REPORTED: 'Informado', NOT_REPORTED: 'Não informado', DECLARED_NONE: 'Declara ausência',
+      DECLARED_PRESENT: 'Declara presença', PREPRINT: 'Pré-publicação', RETRACTED: 'Retratado',
+      SYSTEMATIC_REVIEW_META_ANALYSIS: 'Revisão sistemática ou meta-análise',
+      RANDOMIZED_CLINICAL_TRIAL: 'Ensaio clínico randomizado', OBSERVATIONAL: 'Estudo observacional',
+      OTHER: 'Outro desenho', EXPLICIT_TEXT: 'Texto explícito', PUBLICATION_TYPE: 'Tipo de publicação'
+    };
+    const statusLabel = value => statusLabels[value] || value || 'Não informado';
     const chartColors = {SUPPORTS: '#1f8a62', NEUTRAL: '#c98a12', UNCERTAIN: '#c98a12', CONTRADICTS: '#c0392b', NOT_ASSESSED: '#9aa49e'};
 
     const text = value => value == null ? 'Não informado' : String(value);
+    const sectionLabel = value => ({
+      Abstract: 'Resumo', Introduction: 'Introdução', Background: 'Contexto', Methods: 'Métodos',
+      Methodology: 'Metodologia', Results: 'Resultados', Discussion: 'Discussão',
+      Conclusions: 'Conclusões', Conclusion: 'Conclusão', References: 'Referências'
+    })[value] || value;
+    const formatPublicationDate = value => {
+      if (!value) return null;
+      const months = {Jan: 'jan.', Feb: 'fev.', Mar: 'mar.', Apr: 'abr.', May: 'mai.', Jun: 'jun.', Jul: 'jul.', Aug: 'ago.', Sep: 'set.', Oct: 'out.', Nov: 'nov.', Dec: 'dez.'};
+      return String(value).replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/g, month => months[month]);
+    };
     const safeUrl = value => {
       try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href : null; }
       catch (_) { return null; }
@@ -519,22 +636,38 @@ WEB_UI_HTML = r"""<!doctype html>
       if (className) element.className = className; parent.appendChild(element); return element;
     }
     function showError(message) {
+      setWorkflowStep(1);
       errorBox.textContent = message; errorBox.style.display = 'block';
       statusBox.style.display = 'none'; submit.disabled = false;
     }
     function setProgress(status, progress) {
-      const names = {
-        QUEUED: 'Análise na fila…',
-        RUNNING: 'Lendo e estruturando o artigo…',
-        RESEARCHING: 'Lendo estudos externos para as alegações selecionadas…'
+      setWorkflowStep(status === 'RESEARCHING' ? 3 : 2);
+      const states = {
+        QUEUED: ['Análise na fila…', 'A fonte foi recebida e aguarda o início da leitura.', 'prepare'],
+        RUNNING: ['Lendo e organizando o artigo…', 'Extraindo o conteúdo, as seções e os trechos que serão apresentados para revisão.', 'read'],
+        AWAITING_CLAIM_SELECTION: ['Leitura pronta para revisão', 'Confira o conteúdo extraído e escolha o que deseja pesquisar.', 'review'],
+        RESEARCHING: ['Pesquisando evidências no PubMed…', 'Recuperando estudos e organizando os trechos relacionados à sua seleção.', 'research'],
+        SUCCEEDED: ['Análise concluída', 'O resultado foi organizado e está pronto para conferência.', 'finish'],
+        FAILED: ['Não foi possível concluir', 'O processamento foi interrompido. Consulte a mensagem de erro para tentar novamente.', 'finish']
       };
-      statusText.textContent = names[status] || 'Preparando resultado…';
-      progressText.textContent = `${progress}%`; progressBar.style.width = `${progress}%`;
+      const current = states[status] || ['Preparando resultado…', 'Organizando as informações disponíveis.', 'prepare'];
+      const normalized = Math.max(0, Math.min(100, Number(progress) || 0));
+      statusText.textContent = current[0];
+      document.getElementById('progress-detail').textContent = current[1];
+      progressText.textContent = `${normalized}%`; progressBar.style.width = `${normalized}%`;
+      const progressNode = progressBar.parentElement;
+      progressNode.setAttribute('aria-valuenow', String(normalized));
+      const order = ['prepare', 'read', 'review', 'research', 'finish'];
+      const currentIndex = order.indexOf(current[2]);
+      document.querySelectorAll('[data-progress-stage]').forEach((item, index) => {
+        item.classList.toggle('is-done', index < currentIndex || status === 'SUCCEEDED');
+        item.classList.toggle('is-current', index === currentIndex && status !== 'SUCCEEDED');
+      });
     }
     function addCitation(parent, citation) {
       const node = document.createElement('div'); node.className = 'citation';
       node.dataset.verified = citation.verified === true ? 'true' : 'false';
-      const location = [citation.section, citation.page ? `p. ${citation.page}` : null].filter(Boolean).join(', ');
+      const location = [sectionLabel(citation.section), citation.page ? `p. ${citation.page}` : null].filter(Boolean).join(', ');
       node.textContent = `“${citation.quote || 'Trecho não fornecido'}”${location ? ` — ${location}` : ''}`;
       if (citation.verified === false) node.title = 'Trecho não localizado automaticamente no texto extraído.';
       parent.appendChild(node);
@@ -631,7 +764,7 @@ WEB_UI_HTML = r"""<!doctype html>
       const sections = document.getElementById('whole-sections'); clearNode(sections);
       (report.section_summaries || []).forEach(item => {
         const card = document.createElement('article'); card.className = 'finding';
-        addTextElement(card, 'h3', item.section); addTextElement(card, 'p', item.summary);
+        addTextElement(card, 'h3', sectionLabel(item.section)); addTextElement(card, 'p', item.summary);
         const points = document.createElement('ul'); (item.key_points || []).forEach(point => addTextElement(points, 'li', point)); card.appendChild(points);
         (item.citations || []).forEach(citation => addCitation(card, citation)); sections.appendChild(card);
       });
@@ -752,7 +885,7 @@ WEB_UI_HTML = r"""<!doctype html>
         titleNode.addEventListener('click', () => openStudyPreview(row));
         study.appendChild(titleNode);
         if (row.title_pt && row.title && row.title_pt !== row.title) addTextElement(study, 'span', row.title, 'original');
-        addTextElement(study, 'span', [row.journal, row.access_level === 'ABSTRACT_ONLY' ? 'lido: só abstract' : (row.assessed ? 'lido: texto completo' : 'não lido')].filter(Boolean).join(' · '), 'original');
+        addTextElement(study, 'span', [row.journal, row.is_medline ? 'Indexado no MEDLINE' : null, row.access_level === 'ABSTRACT_ONLY' ? 'lido: somente o resumo' : (row.assessed ? 'lido: texto completo' : 'não lido')].filter(Boolean).join(' · '), 'original');
         if (editorialLabels[row.editorial_status]) { const flag = addTextElement(study, 'span', editorialLabels[row.editorial_status], 'status-flag'); flag.dataset.status = row.editorial_status; }
         const fullTextLevels = ['FULL_TEXT', 'OPEN_ACCESS_FULL_TEXT', 'USER_PROVIDED_FULL_TEXT'];
         if (!fullTextLevels.includes(row.access_level) && activeClaimId && row.work_key) {
@@ -783,7 +916,7 @@ WEB_UI_HTML = r"""<!doctype html>
           const sources = document.createElement('details');
           addTextElement(sources, 'summary', 'Fontes dos dados extraídos');
           Object.entries(row.field_sources).forEach(([field, source]) => {
-            addTextElement(sources, 'p', `${field}: “${source.text}” — ${source.section || 'seção não identificada'}${source.page ? `, p. ${source.page}` : ''}`);
+            addTextElement(sources, 'p', `${field}: “${source.text}” — ${sectionLabel(source.section) || 'seção não identificada'}${source.page ? `, p. ${source.page}` : ''}`);
             previewLink(sources, 'Conferir fonte', source.source_url || row.url);
           });
           study.appendChild(sources);
@@ -895,7 +1028,7 @@ WEB_UI_HTML = r"""<!doctype html>
       body.appendChild(links);
       const access = document.createElement('section');
       addTextElement(access, 'h3', 'O que foi lido');
-      const levelLabel = {FULL_TEXT: 'Texto completo', OPEN_ACCESS_FULL_TEXT: 'Texto completo aberto', USER_PROVIDED_FULL_TEXT: 'PDF enviado por você', ABSTRACT_ONLY: 'Somente o resumo (abstract)', METADATA_ONLY: 'Somente metadados (não lido)'};
+      const levelLabel = {FULL_TEXT: 'Texto completo', OPEN_ACCESS_FULL_TEXT: 'Texto completo aberto', USER_PROVIDED_FULL_TEXT: 'PDF enviado por você', ABSTRACT_ONLY: 'Somente o resumo', METADATA_ONLY: 'Somente metadados (não lido)'};
       addTextElement(access, 'p', `${levelLabel[row.access_level] || row.access_level}${row.full_text_source ? ` — via ${row.full_text_source}` : ''}.`);
       if ((row.full_text_attempts || []).length) {
         addTextElement(access, 'strong', 'Tentativas de obter o texto completo');
@@ -918,7 +1051,7 @@ WEB_UI_HTML = r"""<!doctype html>
         addTextElement(passages, 'p', 'Destaque amarelo = trecho citado como evidência.', 'article-meta');
         row.analyzed_passages.forEach(item => {
           const node = document.createElement('div'); node.className = 'passage';
-          addTextElement(node, 'span', [item.section, item.page ? `p. ${item.page}` : null].filter(Boolean).join(' · ') || 'Trecho', 'article-meta');
+          addTextElement(node, 'span', [sectionLabel(item.section), item.page ? `p. ${item.page}` : null].filter(Boolean).join(' · ') || 'Trecho', 'article-meta');
           const textNode = document.createElement('div'); appendHighlighted(textNode, item.text || '', [row.quote]); node.appendChild(textNode);
           passages.appendChild(node);
         });
@@ -1103,19 +1236,20 @@ WEB_UI_HTML = r"""<!doctype html>
           addTextElement(card, 'h3', title); addTextElement(card, 'p', detail); dossierItems.appendChild(card);
         };
         addDossierItem('Identidade e publicação',
-          `${identity.explanation || 'Identidade não confirmada'} Autores: ${identity.authors_consistency || 'UNKNOWN'}. ` +
+          `${identity.explanation || 'Identidade não confirmada'} Autores: ${statusLabel(identity.authors_consistency)}. ` +
           `DOI: ${identity.doi || 'não informado'}; periódico: ${publication.journal || 'não informado'}; data: ${publication.publication_date || 'não informada'}.`);
         addDossierItem('Status editorial',
-          `Revisão por pares: ${editorial.peer_review || 'UNKNOWN'}. Retratação: ${editorial.retraction || 'UNKNOWN'}. ` +
+          `Revisão por pares: ${statusLabel(editorial.peer_review)}. Retratação: ${statusLabel(editorial.retraction)}. ` +
           `${editorial.retraction_explanation || ''}`);
         addDossierItem('Desenho, amostra e protocolo',
-          `Desenho: ${dossierMethod.study_design || 'UNKNOWN'}; fonte: ${dossierMethod.classification_source || 'UNRESOLVED'}. ` +
+          `Desenho: ${statusLabel(dossierMethod.study_design)}; fonte: ${statusLabel(dossierMethod.classification_source)}. ` +
           `Amostra: ${sample.value == null ? 'não localizada' : sample.value}. Protocolos: ${(protocol.identifiers || []).join(', ') || 'não localizados'}.`);
         addDossierItem('Transparência',
-          `Financiamento: ${transparency.funding?.status || 'UNKNOWN'}. Conflitos de interesse: ${transparency.conflicts_of_interest?.status || 'UNKNOWN'}. ` +
-          `Disponibilidade de dados: ${transparency.data_availability?.status || 'UNKNOWN'}.`);
+          `Financiamento: ${statusLabel(transparency.funding?.status)}. Conflitos de interesse: ${statusLabel(transparency.conflicts_of_interest?.status)}. ` +
+          `Disponibilidade de dados: ${statusLabel(transparency.data_availability?.status)}.`);
+        const transparencyLabels = {funding: 'financiamento', conflicts_of_interest: 'conflitos de interesse', data_availability: 'disponibilidade de dados'};
         Object.entries(transparency).forEach(([field, signal]) => {
-          if (signal.excerpt) addDossierItem(`Trecho de ${field.replaceAll('_', ' ')}`, `${signal.section}: “${signal.excerpt}”`);
+          if (signal.excerpt) addDossierItem(`Trecho sobre ${transparencyLabels[field] || field.replaceAll('_', ' ')}`, `${sectionLabel(signal.section)}: “${signal.excerpt}”`);
         });
         if (sample.status === 'FOUND') addDossierItem('Origem da amostra', sample.explanation);
         addDossierItem('Limites da ficha',
@@ -1189,6 +1323,8 @@ WEB_UI_HTML = r"""<!doctype html>
       if (shouldScroll !== false) resultBox.scrollIntoView({behavior: 'smooth', block: 'start'});
     }
     function renderAnalysis(data, shouldScroll) {
+      setWorkflowStep(3);
+      if (activeAnalysisId) loadArticleReader({analysis_id: activeAnalysisId, status: 'SUCCEEDED', result: data});
       renderWholeArticle(data.whole_article_analysis);
       document.getElementById('watch-toggle').checked = Boolean(data.watch?.enabled);
       document.getElementById('export-markdown').href = activeAnalysisId ? `/api/v1/analyses/${activeAnalysisId}/report.md` : '#';
@@ -1282,6 +1418,7 @@ WEB_UI_HTML = r"""<!doctype html>
       }
     }
     function renderClaimSelection(job) {
+      setWorkflowStep(2);
       const claims = job.result?.submitted_article?.claims || [];
       activeEstimates = job.result?.research_estimates || null;
       clearNode(reviewClaims);
@@ -1291,6 +1428,7 @@ WEB_UI_HTML = r"""<!doctype html>
       claims.forEach((claim, index) => {
         const profile = claim.profile || {};
         const card = document.createElement('article'); card.className = 'claim-card';
+        card.dataset.claimId = claim.claim_id;
         const head = document.createElement('div'); head.className = 'claim-card-head';
         const toggle = document.createElement('label');
         const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.dataset.claimId = claim.claim_id;
@@ -1306,7 +1444,7 @@ WEB_UI_HTML = r"""<!doctype html>
         const editedNote = addTextElement(card, 'div', 'Texto alterado: tipo, PICO e consultas serão refeitos antes da busca.', 'edited-note');
         editedNote.style.display = 'none';
         editor.addEventListener('input', () => { editedNote.style.display = editor.value.trim() !== (claim.text || '') ? 'block' : 'none'; });
-        const location = [claim.section, claim.page ? `p. ${claim.page}` : null].filter(Boolean).join(', ');
+        const location = [sectionLabel(claim.section), claim.page ? `p. ${claim.page}` : null].filter(Boolean).join(', ');
         if (claim.quote) addTextElement(card, 'div', `Trecho de origem: “${claim.quote}”${location ? ` — ${location}` : ''}`, 'review-source');
         else addTextElement(card, 'div', 'Trecho literal de origem não localizado no texto extraído.', 'review-source');
         if (claim.profile) {
@@ -1331,9 +1469,10 @@ WEB_UI_HTML = r"""<!doctype html>
       activeAnalysisId = job.analysis_id;
       activeStatusUrl = `/api/v1/analyses/${job.analysis_id}`;
       activeSelectionUrl = job.claim_selection_url || `/api/v1/article-analyses/${job.analysis_id}/claims`;
+      loadArticleReader(job);
       statusBox.style.display = 'none'; resultBox.style.display = 'none';
       claimReview.style.display = 'block'; submit.disabled = false;
-      document.getElementById('whole-article-report').scrollIntoView({behavior: 'smooth', block: 'start'});
+      document.getElementById('source-reader').scrollIntoView({behavior: 'smooth', block: 'start'});
     }
     researchSelected.addEventListener('click', () => {
       const selected = [];
@@ -1365,55 +1504,108 @@ WEB_UI_HTML = r"""<!doctype html>
         await new Promise(resolve => setTimeout(resolve, 1500));
       }
     }
-    document.getElementById('topic-form').addEventListener('submit', async event => {
-      event.preventDefault();
+    async function runTopicSearch(page = 1) {
       const button = document.getElementById('topic-submit');
       const status = document.getElementById('topic-status');
       const results = document.getElementById('topic-results');
       button.disabled = true; clearNode(results);
+      status.classList.add('is-loading');
+      document.getElementById('topic-form').setAttribute('aria-busy', 'true');
       status.textContent = 'Preparando a consulta e pesquisando no PubMed…';
       try {
+        if (page === 1) { activeTopicQuery = null; activeTopicMode = null; }
+        const requestBody = {
+          topic: document.getElementById('topic-input').value.trim(),
+          article_type: document.getElementById('topic-type').value,
+          availability: document.getElementById('topic-availability').value,
+          indexing: document.getElementById('topic-indexing').value,
+          language: document.getElementById('topic-language').value,
+          page,
+          page_size: Number(document.getElementById('topic-page-size').value)
+        };
+        if (page > 1 && activeTopicQuery) requestBody.prepared_query = activeTopicQuery;
         const response = await fetch('/api/v1/pubmed-search', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({topic: document.getElementById('topic-input').value.trim(), article_type: document.getElementById('topic-type').value})
+          body: JSON.stringify(requestBody)
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error?.message || 'Não foi possível pesquisar.');
         const articles = data.articles || [];
-        const mode = data.mode === 'ASSISTED' ? 'Termos organizados com IA.' : 'Consulta direta ao PubMed, sem expansão por IA.';
-        status.textContent = `${articles.length ? `${articles.length} artigo(s) encontrado(s).` : 'Nenhum artigo encontrado. Tente outros termos ou amplie o tipo de artigo.'} ${mode} ${data.limitation || ''}`;
+        const pagination = data.pagination || {};
+        if (page === 1) {
+          activeTopicQuery = data.query_results?.[0]?.query || null;
+          activeTopicMode = data.mode;
+        }
+        const mode = activeTopicMode === 'ASSISTED' ? 'Termos organizados com IA.' : 'Consulta direta ao PubMed, sem expansão por IA.';
+        status.textContent = articles.length
+          ? `Exibindo ${pagination.first_result}–${pagination.last_result} de ${pagination.total_results} artigos. ${mode} ${data.limitation || ''}${pagination.limited_by_pubmed ? ' O PubMed limita a navegação desta consulta aos primeiros 10.000 resultados; refine os termos para acessar os demais.' : ''}`
+          : `Nenhum artigo encontrado. Tente outros termos ou amplie os filtros. ${mode}`;
+        if (articles.length) {
+          const resultHeader = document.createElement('div'); resultHeader.className = 'topic-result-header';
+          addTextElement(resultHeader, 'strong', `${pagination.total_results} resultados no PubMed`);
+          addTextElement(resultHeader, 'span', `Página ${pagination.page} de ${pagination.total_pages}`);
+          results.appendChild(resultHeader);
+        }
         const queries = document.createElement('details');
+        queries.className = 'topic-query-details';
         addTextElement(queries, 'summary', 'Ver consultas usadas');
         (data.query_results || []).forEach(item => addTextElement(queries, 'p', `${item.query} — ${item.status === 'OK' ? `${item.total_matches} resultado(s) no PubMed` : 'consulta indisponível'}`));
-        results.appendChild(queries);
         articles.forEach(article => {
-          const card = document.createElement('article'); card.className = 'finding';
-          addTextElement(card, 'h3', article.title);
-          addTextElement(card, 'p', [article.journal, article.publication_date, `PMID ${article.pmid}`, ...(article.publication_types || [])].filter(Boolean).join(' · '), 'article-meta');
+          const card = document.createElement('article'); card.className = 'finding topic-card';
+          addTextElement(card, 'h3', article.title_pt || article.title);
+          if (article.title_pt && article.title_pt !== article.title) {
+            addTextElement(card, 'p', `Título original: ${article.title}`, 'article-original-title');
+          }
+          const availability = article.has_full_text ? 'Texto completo no PMC' : 'Registro no PubMed';
+          const indexing = article.is_medline ? 'Indexado no MEDLINE' : 'Não confirmado no MEDLINE';
+          addTextElement(card, 'p', [article.journal, formatPublicationDate(article.publication_date), `PMID ${article.pmid}`, ...(article.language_labels || []), indexing, availability, ...(article.publication_type_labels || [])].filter(Boolean).join(' · '), 'article-meta');
           if (article.authors?.length) addTextElement(card, 'p', article.authors.slice(0, 3).join(', '), 'article-meta');
           previewLink(card, 'Abrir no PubMed', article.url);
+          if (article.pmc_url) {
+            const separator = document.createTextNode(' · '); card.appendChild(separator);
+            previewLink(card, 'Ler texto completo no PMC', article.pmc_url);
+          }
           const choose = document.createElement('button'); choose.type = 'button'; choose.className = 'secondary';
           choose.textContent = 'Usar este artigo'; choose.style.marginLeft = '12px';
           choose.addEventListener('click', () => {
+            setInputMode('link');
             document.getElementById('article-file').value = '';
             const reference = document.getElementById('article-reference');
             reference.value = article.url;
             document.getElementById('analysis-form').scrollIntoView({behavior: 'smooth', block: 'center'});
             reference.focus({preventScroll: true});
-            status.textContent = 'Artigo selecionado. Clique em “Verificar artigo” abaixo para iniciar a análise.';
+            status.textContent = 'Artigo selecionado. Continue na aba de referência para iniciar a leitura.';
           });
           card.appendChild(choose); results.appendChild(card);
         });
+        if (articles.length) {
+          const navigation = document.createElement('nav'); navigation.className = 'topic-pagination'; navigation.setAttribute('aria-label', 'Páginas dos resultados');
+          const previous = document.createElement('button'); previous.type = 'button'; previous.className = 'secondary'; previous.textContent = '← Página anterior'; previous.disabled = !pagination.has_previous;
+          previous.addEventListener('click', () => runTopicSearch(pagination.page - 1));
+          const pageLabel = document.createElement('span'); pageLabel.textContent = `Página ${pagination.page} de ${pagination.total_pages}`;
+          const next = document.createElement('button'); next.type = 'button'; next.className = 'secondary'; next.textContent = 'Próxima página →'; next.disabled = !pagination.has_next;
+          next.addEventListener('click', () => runTopicSearch(pagination.page + 1));
+          navigation.append(previous, pageLabel, next); results.appendChild(navigation);
+        }
+        results.appendChild(queries);
+        if (page > 1) results.scrollIntoView({behavior: 'smooth', block: 'start'});
       } catch (error) {
         status.textContent = error.message || 'Erro ao consultar o PubMed.';
       } finally {
+        status.classList.remove('is-loading');
+        document.getElementById('topic-form').setAttribute('aria-busy', 'false');
         button.disabled = false;
       }
+    }
+    document.getElementById('topic-form').addEventListener('submit', event => {
+      event.preventDefault();
+      runTopicSearch(1);
     });
 
     form.addEventListener('submit', async event => {
       event.preventDefault(); submit.disabled = true; errorBox.style.display = 'none';
       activeClaimId = null; activeAnalysisId = null;
+      resetArticleReader();
       resultBox.style.display = 'none'; claimReview.style.display = 'none';
       document.getElementById('whole-article-report').style.display = 'none';
       researchSelected.disabled = false; statusBox.style.display = 'block'; setProgress('QUEUED', 0);
@@ -1446,6 +1638,8 @@ WEB_UI_HTML = r"""<!doctype html>
       } catch (error) { showError(error.message || 'Erro inesperado.'); }
     });
   </script>
+  <script src="/static/workspace.js"></script>
+  <script src="/static/article-reader.js"></script>
 </body>
 </html>"""
 

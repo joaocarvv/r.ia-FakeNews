@@ -332,6 +332,8 @@ class RetrievalPreviewRunner:
                 identifiers = self.related_client.related_ids(
                     seed_pmid, max_results=self.max_results_per_query
                 )
+                if self.pubmed_only:
+                    identifiers = self.related_client.filter_medline_ids(identifiers)
                 publications = self.related_client.fetch_summaries(
                     identifiers,
                     {identifier: (f"related:{seed_pmid}",) for identifier in identifiers},
@@ -358,17 +360,18 @@ class RetrievalPreviewRunner:
                             ),
                         ),
                         publication_types=item.publication_types,
+                        is_medline=item.is_medline or self.pubmed_only,
                     )
                 )
         return tuple(works), tuple(failures)
 
     def _editorial_status(self, work: Any) -> tuple[str, str | None]:
-        """Retratação, correção ou preprint segundo PubMed e Crossref."""
+        """Retratação, correção ou pré-publicação segundo PubMed e Crossref."""
 
         types = " ".join(getattr(work, "publication_types", ()) or ()).casefold()
         if "retracted publication" in types:
             return "RETRACTED", "PubMed marca o registro como publicação retratada."
-        status, detail = ("PREPRINT", "Tipo de publicação indica preprint.") if (
+        status, detail = ("PREPRINT", "Tipo de publicação indica pré-publicação.") if (
             "preprint" in types
         ) else ("PUBLISHED", None)
         if self.crossref_client is None or not work.doi:
@@ -383,7 +386,7 @@ class RetrievalPreviewRunner:
         if update_types & {"expression_of_concern", "expression-of-concern"}:
             return "EXPRESSION_OF_CONCERN", "O Crossref registra manifestação de preocupação."
         if str(crossref_work.work_type or "").casefold() in {"posted-content", "preprint"}:
-            return "PREPRINT", "O Crossref classifica o registro como preprint (sem revisão por pares)."
+            return "PREPRINT", "O Crossref classifica o registro como pré-publicação (sem revisão por pares)."
         if update_types & {"correction", "erratum", "corrigendum"}:
             return "CORRECTED", "O Crossref registra correção publicada para este trabalho."
         return status, detail
@@ -814,6 +817,7 @@ class RetrievalPreviewRunner:
             work
             for work in all_works
             if not work.doi or work.doi.strip().casefold() not in normalized_exclusions
+            if not self.pubmed_only or work.is_medline
         )
         with logged_step(
             logger,
@@ -894,6 +898,7 @@ class RetrievalPreviewRunner:
                 "doi": work.doi,
                 "url": work.url,
                 "publication_types": list(work.publication_types),
+                "is_medline": work.is_medline,
                 "editorial_status": editorial_by_identity.get(
                     work.doi or work.pmid or work.url, ("UNKNOWN", None)
                 )[0],
@@ -990,8 +995,8 @@ class RetrievalPreviewRunner:
         ]
         limitations = [
             (
-                "A análise priorizou texto completo quando disponível e usou abstracts "
-                "somente como fallback explicitamente identificado."
+                "A análise priorizou texto completo quando disponível e usou resumos "
+                "somente como alternativa explicitamente identificada."
                 if assessments
                 else "Esta execução recuperou artigos, mas não analisou seus resultados."
             ),
@@ -999,6 +1004,11 @@ class RetrievalPreviewRunner:
             "A tradução automática da consulta pode alterar termos ou nuances clínicas.",
             "A ordem é um ranking de recuperação, não um ranking de qualidade científica.",
         ]
+        if self.pubmed_only:
+            limitations.append(
+                "Somente artigos indexados no MEDLINE foram admitidos na comparação; "
+                "isso não substitui a avaliação metodológica de cada estudo."
+            )
         if result.failures:
             failed_sources = ", ".join(
                 dict.fromkeys(failure.source for failure in result.failures)
@@ -1606,7 +1616,7 @@ def create_pubmed_only_app(*, project_root: Path | None = None):
     )
     engine = FederatedSearchEngine(
         (
-            PubMedSearchProvider(pubmed_client),
+            PubMedSearchProvider(pubmed_client, require_medline=True),
         )
     )
     translator = MarianPortugueseEnglishTranslator(

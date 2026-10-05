@@ -212,7 +212,7 @@ class EvidenceDocument:
         if not self.pmid.strip() or not self.title.strip():
             raise ValueError("PMID e título são obrigatórios.")
         if not self.abstract.strip() and not self.passages:
-            raise ValueError("O documento precisa de abstract ou trechos.")
+            raise ValueError("O documento precisa de resumo ou trechos.")
         if not self.source_url.startswith(("https://", "http://")):
             raise ValueError("A fonte do documento precisa ser uma URL HTTP(S).")
 

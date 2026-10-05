@@ -28,8 +28,8 @@ _SCOPE_LABELS = {
     "LOCAL_PDF_FULL_TEXT": "Texto completo do PDF enviado",
     "FULL_TEXT": "Texto completo recuperado",
     "OPEN_ACCESS_FULL_TEXT": "Texto completo de acesso aberto",
-    "ABSTRACT": "Somente o resumo (abstract): o artigo inteiro NÃO foi lido",
-    "ABSTRACT_ONLY": "Somente o resumo (abstract): o artigo inteiro NÃO foi lido",
+    "ABSTRACT": "Somente o resumo: o artigo inteiro NÃO foi lido",
+    "ABSTRACT_ONLY": "Somente o resumo: o artigo inteiro NÃO foi lido",
     "METADATA_ONLY": "Somente metadados: o conteúdo do artigo NÃO foi lido",
     "URL_CONTEXT_UNVERIFIED": (
         "Leitura indireta pela página do artigo; não é possível garantir que o "

@@ -53,7 +53,7 @@ class ResultPresentationTests(unittest.TestCase):
         self.assertEqual(summary["reading"]["abstract_only_count"], 1)
         self.assertEqual(summary["findings"][0]["location"], "Seção Results, página 6")
         self.assertIn("Envie o PDF", summary["next_action"])
-        self.assertTrue(any("somente o abstract" in item for item in summary["caveats"]))
+        self.assertTrue(any("somente o resumo" in item for item in summary["caveats"]))
 
     def test_calls_conflicting_directions_divergent_without_a_truth_verdict(self):
         summary = build_user_summary({

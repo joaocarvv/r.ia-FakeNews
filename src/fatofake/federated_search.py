@@ -59,6 +59,7 @@ class ScientificWork:
     related_work_count: int | None = None
     full_text_url: str | None = None
     publication_types: tuple[str, ...] = ()
+    is_medline: bool = False
 
     def to_publication(self) -> Publication | None:
         """Converte apenas trabalhos vinculados ao PubMed para o fluxo atual."""
@@ -76,6 +77,7 @@ class ScientificWork:
             matched_queries=self.matched_queries,
             source=", ".join(self.sources),
             publication_types=self.publication_types,
+            is_medline=self.is_medline,
         )
 
 
@@ -296,6 +298,7 @@ def deduplicate_works(
                             for item in record.publication_types
                         )
                     ),
+                    is_medline=any(record.is_medline for record in records),
                 ),
             )
         )
@@ -317,12 +320,16 @@ class PubMedSearchProvider:
     name = "PubMed"
     pubmed_syntax = True
 
-    def __init__(self, client: PubMedClient) -> None:
+    def __init__(self, client: PubMedClient, *, require_medline: bool = False) -> None:
         self.client = client
+        self.require_medline = require_medline
 
     def search(self, query: str, *, max_results: int) -> ProviderSearchResult:
-        total, identifiers = self.client.search_ids(query, max_results=max_results)
-        matches = {identifier: (query,) for identifier in identifiers}
+        effective_query = f"({query}) AND medline[sb]" if self.require_medline else query
+        total, identifiers = self.client.search_ids(
+            effective_query, max_results=max_results
+        )
+        matches = {identifier: (effective_query,) for identifier in identifiers}
         publications = self.client.fetch_summaries(identifiers, matches)
         works = tuple(
             ScientificWork(
@@ -333,15 +340,16 @@ class PubMedSearchProvider:
                 doi=normalize_doi(item.doi),
                 pmid=normalize_pmid(item.pmid),
                 url=item.url,
-                matched_queries=(query,),
+                matched_queries=(effective_query,),
                 sources=(self.name,),
                 source_ids=((self.name, item.pmid),),
-                source_ranks=(SourceRank(self.name, query, rank),),
+                source_ranks=(SourceRank(self.name, effective_query, rank),),
                 publication_types=item.publication_types,
+                is_medline=item.is_medline or self.require_medline,
             )
             for rank, item in enumerate(publications, start=1)
         )
-        return ProviderSearchResult(self.name, query, total, works)
+        return ProviderSearchResult(self.name, effective_query, total, works)
 
 
 class OpenAlexClient:

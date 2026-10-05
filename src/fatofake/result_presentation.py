@@ -16,8 +16,8 @@ _SCOPE_LABELS = {
     "OPEN_ACCESS_FULL_TEXT": "texto completo aberto",
     "LOCAL_PDF_FULL_TEXT": "PDF completo enviado",
     "USER_PROVIDED_FULL_TEXT": "PDF completo enviado pelo usuário",
-    "ABSTRACT_ONLY": "somente abstract",
-    "ABSTRACT": "somente abstract",
+    "ABSTRACT_ONLY": "somente o resumo",
+    "ABSTRACT": "somente o resumo",
     "METADATA_ONLY": "somente metadados",
     "GEMINI_URL_CONTEXT": "conteúdo acessado pelo modelo",
     "UNKNOWN": "escopo não identificado",
@@ -78,7 +78,7 @@ def _interpretation(status: str, direct_count: int, abstract_count: int) -> str:
     if direct_count == 1:
         result += " A direção observada depende de apenas um artigo comparável."
     if abstract_count:
-        result += " Parte da leitura foi limitada ao abstract."
+        result += " Parte da leitura foi limitada ao resumo."
     return result
 
 
@@ -198,11 +198,11 @@ def build_user_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         "O resultado mede compatibilidade com os trechos recuperados, não verdade médica."
     ]
     if submitted_scope in {"ABSTRACT", "ABSTRACT_ONLY"}:
-        caveats.append("Do artigo enviado, foi possível ler somente o abstract.")
+        caveats.append("Do artigo enviado, foi possível ler somente o resumo.")
     if abstract_count:
         caveats.append(
             f"{abstract_count} {_plural(abstract_count, 'artigo independente', 'artigos independentes')} "
-            "foram analisados somente pelo abstract."
+            "foram analisados somente pelo resumo."
         )
     if len(articles) > assessed_count:
         missing = len(articles) - assessed_count
@@ -245,7 +245,7 @@ def build_user_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     reading_summary = (
         f"{submitted_prefix} {independent_reading}; "
         f"{assessed_count} {compared_verb}: {full_text_count} com texto completo e "
-        f"{abstract_count} somente pelo abstract."
+        f"{abstract_count} somente pelo resumo."
     )
 
     search = result.get("search") or {}

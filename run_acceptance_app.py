@@ -18,13 +18,14 @@ if __name__ == "__main__":
     configure_structured_logging()
     application = create_live_retrieval_app(project_root=ROOT)
     host = "0.0.0.0" if os.getenv("APP_ENV") == "docker" else "127.0.0.1"
+    port = int(os.getenv("APP_PORT", "5000"))
     log_event(
         logging.getLogger("fatofake.startup"),
         logging.INFO,
         "Fato ou Fake iniciado",
         event="application.started",
         host=host,
-        port=5000,
+        port=port,
         mode="scientific_retrieval",
     )
-    application.run(host=host, port=5000, debug=False)
+    application.run(host=host, port=port, debug=False)

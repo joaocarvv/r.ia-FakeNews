@@ -8,6 +8,13 @@ A aplicação não declara que um artigo é verdadeiro, falso ou metodologicamen
 
 ## Escopo desta branch
 
+- Interface organizada em fonte, leitura e evidências, com abas para tema, referência
+  e arquivo. O resultado começa pelo resumo e pelos trechos; detalhes adicionais
+  ficam em seções expansíveis. O layout funciona em desktop e celular.
+- Leitor com todo o texto disponível e trechos de origem destacados. Ao passar o
+  mouse ou tocar, é possível selecionar, editar ou investigar a alegação.
+  Quando só há resumo, a tela informa essa limitação; citações não localizadas
+  permanecem na lista, sem destaque por aproximação.
 - Busca por tema em português ou inglês: termos organizados por IA quando disponível,
   consultas exibidas ao usuário e resultados com opção de selecionar um artigo.
 - Filtros opcionais para revisões sistemáticas/meta-análises e ensaios randomizados.

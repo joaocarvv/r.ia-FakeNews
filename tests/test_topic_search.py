@@ -14,7 +14,9 @@ class TopicSearchTests(unittest.TestCase):
         client.search_ids.return_value = (20, ("123",))
         client.fetch_summaries.return_value = (
             Publication("123", "Title from PubMed", (), "Journal", "2025", None,
-                        "https://pubmed.ncbi.nlm.nih.gov/123/", ()),
+                        "https://pubmed.ncbi.nlm.nih.gov/123/", (),
+                        publication_types=("Journal Article",), pmcid="PMC123",
+                        languages=("eng",)),
         )
         return client
 
@@ -26,18 +28,25 @@ class TopicSearchTests(unittest.TestCase):
     def test_direct_search_without_llm_uses_pubmed_metadata(self):
         client = self.client()
         result = PubMedTopicSearch(client).search("diabetes exercise")
-        client.search_ids.assert_called_once_with("diabetes exercise", max_results=5)
+        client.search_ids.assert_called_once_with(
+            "(diabetes exercise) AND (medline[sb])", max_results=20, start=0
+        )
         self.assertEqual(result["mode"], "DIRECT")
         self.assertEqual(result["articles"][0]["title"], "Title from PubMed")
+        self.assertEqual(result["articles"][0]["publication_type_labels"], ["Artigo científico"])
+        self.assertTrue(result["articles"][0]["has_full_text"])
+        self.assertTrue(result["articles"][0]["is_medline"])
+        self.assertEqual(result["articles"][0]["language_labels"], ["Inglês"])
+        self.assertEqual(result["pagination"]["total_results"], 20)
 
     def test_assisted_queries_preserve_original_and_deduplicate_articles(self):
         client = self.client()
         gateway = self.gateway(["diabetes AND exercise", "diabetes AND exercise", "diabetes AND physical activity"])
         result = PubMedTopicSearch(client, gateway).search("exercício e diabetes", article_type="REVIEWS")
         self.assertEqual(result["mode"], "ASSISTED")
-        self.assertEqual(len(result["query_results"]), 3)
-        self.assertIn("exercício e diabetes", result["query_results"][-1]["query"])
-        self.assertTrue(all('"Systematic Review"[Publication Type]' in item["query"] for item in result["query_results"]))
+        self.assertEqual(len(result["query_results"]), 1)
+        self.assertIn("exercício e diabetes", result["query_results"][0]["query"])
+        self.assertIn('"Systematic Review"[Publication Type]', result["query_results"][0]["query"])
         client.fetch_summaries.assert_called_once()
         self.assertEqual(client.fetch_summaries.call_args.args[0], ("123",))
         self.assertEqual(len(result["articles"]), 1)
@@ -49,14 +58,62 @@ class TopicSearchTests(unittest.TestCase):
         gateway._post_json.side_effect = RuntimeError("controlled failure")
         result = PubMedTopicSearch(client, gateway).search("diabetes")
         self.assertEqual(result["mode"], "DIRECT_FALLBACK")
-        client.search_ids.assert_called_once_with("diabetes", max_results=5)
+        client.search_ids.assert_called_once_with(
+            "(diabetes) AND (medline[sb])", max_results=20, start=0
+        )
 
-    def test_partial_search_failure_keeps_successful_results(self):
+    def test_pubmed_failure_is_reported(self):
         client = self.client()
-        client.search_ids.side_effect = [PubMedError("down"), (2, ("123",))]
-        result = PubMedTopicSearch(client, self.gateway(["exercise diabetes"])).search("diabetes")
-        self.assertEqual(result["query_results"][0]["status"], "UNAVAILABLE")
-        self.assertEqual(len(result["articles"]), 1)
+        client.search_ids.side_effect = PubMedError("down")
+        with self.assertRaises(PubMedError):
+            PubMedTopicSearch(client, self.gateway(["exercise diabetes"])).search("diabetes")
+
+    def test_pagination_and_full_text_filter_are_sent_to_pubmed(self):
+        client = self.client()
+        result = PubMedTopicSearch(client).search(
+            "diabetes", availability="PMC_FULL_TEXT", page=2, page_size=10
+        )
+        query = client.search_ids.call_args.args[0]
+        self.assertIn('"pubmed pmc"[Filter]', query)
+        client.search_ids.assert_called_once_with(query, max_results=10, start=10)
+        self.assertEqual(result["pagination"]["page"], 2)
+        self.assertEqual(result["pagination"]["first_result"], 11)
+
+    def test_language_filter_is_applied_by_pubmed(self):
+        client = self.client()
+        result = PubMedTopicSearch(client).search("diabetes", language="PORTUGUESE")
+        query = client.search_ids.call_args.args[0]
+        self.assertIn('"Portuguese"[Language]', query)
+        self.assertEqual(result["filters"]["language"], "PORTUGUESE")
+
+    def test_translates_result_titles_and_preserves_the_original(self):
+        client = self.client()
+        gateway = self.gateway(["diabetes exercise"])
+        gateway._response_text.side_effect = [
+            json.dumps({"queries": ["diabetes exercise"]}),
+            json.dumps({"items": [{"pmid": "123", "title_pt": "Título traduzido do PubMed"}]}),
+        ]
+
+        result = PubMedTopicSearch(client, gateway).search("diabetes")
+
+        self.assertEqual(result["articles"][0]["title_pt"], "Título traduzido do PubMed")
+        self.assertEqual(result["articles"][0]["title"], "Title from PubMed")
+
+    def test_prepared_query_keeps_later_pages_stable_without_calling_llm(self):
+        client = self.client()
+        gateway = self.gateway(["query that must not be generated"])
+        result = PubMedTopicSearch(client, gateway).search(
+            "diabetes", page=2,
+            prepared_query='(diabetes) AND ("pubmed pmc"[Filter]) AND (medline[sb])',
+        )
+        self.assertEqual(gateway._post_json.call_count, 1)
+        self.assertIn("Traduza fielmente", gateway._post_json.call_args.args[1]["contents"][0]["parts"][0]["text"])
+        client.search_ids.assert_called_once_with(
+            '(diabetes) AND ("pubmed pmc"[Filter]) AND (medline[sb])',
+            max_results=20,
+            start=20,
+        )
+        self.assertEqual(result["mode"], "PAGINATED")
 
     def test_empty_search_does_not_fetch_metadata(self):
         client = self.client()
@@ -73,6 +130,16 @@ class TopicSearchTests(unittest.TestCase):
                 search.search(topic)
         with self.assertRaises(InputValidationError):
             search.search("diabetes", article_type="UNKNOWN")
+        with self.assertRaises(InputValidationError):
+            search.search("diabetes", availability="UNKNOWN")
+        with self.assertRaises(InputValidationError):
+            search.search("diabetes", indexing="UNKNOWN")
+        with self.assertRaises(InputValidationError):
+            search.search("diabetes", language="UNKNOWN")
+        with self.assertRaises(InputValidationError):
+            search.search("diabetes", page=0)
+        with self.assertRaises(InputValidationError):
+            search.search("diabetes", prepared_query="(diabetes)")
         client.search_ids.assert_not_called()
         gateway._post_json.assert_not_called()
 

@@ -34,8 +34,11 @@ ESUMMARY_RESPONSE = {
             "articleids": [
                 {"idtype": "pubmed", "value": "101"},
                 {"idtype": "doi", "value": "10.1000/coffee.101"},
+                {"idtype": "pmc", "value": "PMC101"},
             ],
             "pubtype": ["Journal Article", "Randomized Controlled Trial"],
+            "recordstatus": "PubMed - indexed for MEDLINE",
+            "lang": ["eng", "por"],
         },
         "202": {
             "title": "Coffee and neoplasms: a systematic review.",
@@ -102,6 +105,9 @@ class SearchPubMedTests(unittest.TestCase):
         self.assertEqual([item.pmid for item in result.publications], ["101", "202", "303"])
         self.assertEqual(result.publications[0].doi, "10.1000/coffee.101")
         self.assertEqual(result.publications[0].authors, ("Silva A", "Souza B"))
+        self.assertEqual(result.publications[0].pmcid, "PMC101")
+        self.assertTrue(result.publications[0].is_medline)
+        self.assertEqual(result.publications[0].languages, ("eng", "por"))
         self.assertEqual(
             result.publications[0].publication_types,
             ("Journal Article", "Randomized Controlled Trial"),
@@ -126,6 +132,17 @@ class SearchPubMedTests(unittest.TestCase):
         self.assertEqual(result.publications, ())
         self.assertEqual(len(fetcher.calls), 1)
 
+    def test_filters_an_identifier_list_to_medline_records(self) -> None:
+        fetcher = QueueFetcher([esearch_response(1, ["202"])])
+        client = PubMedClient(fetch_json=fetcher)
+
+        result = client.filter_medline_ids(("101", "202", "303"))
+
+        self.assertEqual(result, ("202",))
+        params = fetcher.calls[0][1]
+        self.assertIn("101[PMID] OR 202[PMID] OR 303[PMID]", params["term"])
+        self.assertIn("medline[sb]", params["term"])
+
     def test_rejects_invalid_esearch_response(self) -> None:
         client = PubMedClient(fetch_json=QueueFetcher([{"unexpected": {}}]))
 
@@ -137,6 +154,9 @@ class SearchPubMedTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             client.search_ids("coffee", max_results=0)
+
+        with self.assertRaises(ValueError):
+            client.search_ids("coffee", max_results=5, start=-1)
 
 
 if __name__ == "__main__":

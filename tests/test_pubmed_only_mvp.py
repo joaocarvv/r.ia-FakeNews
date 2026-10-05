@@ -41,6 +41,7 @@ class PubMedOnlyMvpTests(unittest.TestCase):
             service = app.extensions["fatofake_job_service"]
             try:
                 self.assertEqual([provider.name for provider in service.runner.search_engine.providers], ["PubMed"])
+                self.assertTrue(service.runner.search_engine.providers[0].require_medline)
                 self.assertTrue(service.runner.pubmed_only)
                 self.assertTrue(service.article_runner.pubmed_only)
                 self.assertFalse(service.runner.evidence_analyzer.assess_methodology)
@@ -72,6 +73,7 @@ class PubMedOnlyMvpTests(unittest.TestCase):
                 }
                 result = service.runner.analyze("Vitamin C reduces cold duration in adults.")
                 article = result["articles"][0]
+                self.assertTrue(article["is_medline"])
                 self.assertEqual(article["access_level"], "ABSTRACT_ONLY")
                 self.assertEqual(article["quality"]["study_design"], "RANDOMIZED_CLINICAL_TRIAL")
                 self.assertEqual(article["assessments"][0]["relation"], "SUPPORTS")

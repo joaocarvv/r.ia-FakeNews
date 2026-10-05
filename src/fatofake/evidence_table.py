@@ -210,6 +210,7 @@ def build_evidence_rows(
                 "title": article.get("title"),
                 "title_pt": study_row.get("title_pt") or None,
                 "journal": article.get("journal"),
+                "is_medline": bool(article.get("is_medline")),
                 "year": _year(article.get("publication_date")),
                 "publication_date": article.get("publication_date"),
                 "relation": relation,

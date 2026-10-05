@@ -284,7 +284,7 @@ def classify_study_design(
         return StudyDesignAssessment(
             StudyDesign.OTHER,
             "CROSSREF_TYPE",
-            "O Crossref identifica o documento como preprint ou conteúdo publicado previamente.",
+            "O Crossref identifica o documento como pré-publicação ou conteúdo publicado previamente.",
         )
     fallback = {
         "SYSTEMATIC_REVIEW": StudyDesign.SYSTEMATIC_REVIEW,
