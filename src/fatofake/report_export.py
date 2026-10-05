@@ -137,8 +137,14 @@ def _claim(index: int, analysis: Mapping[str, Any]) -> list[str]:
             "",
         ]
     if verdict:
+        synthesis_label = (
+            f"**Síntese ponderada:** {_text(verdict.get('label'))} — "
+            f"certeza {_text(verdict.get('certainty_label'))}"
+            if verdict.get("certainty_label")
+            else f"**Balanço descritivo:** {_text(verdict.get('label'))}"
+        )
         lines += [
-            f"**Síntese ponderada:** {_text(verdict.get('label'))} — certeza {_text(verdict.get('certainty_label'))}",
+            synthesis_label,
             "",
             _text(verdict.get("explanation")),
             "",
@@ -149,10 +155,18 @@ def _claim(index: int, analysis: Mapping[str, Any]) -> list[str]:
         ]
     rows = weighted.get("rows") or []
     if rows:
-        lines += [
-            "| Ano | Estudo | Desenho | População (n) | Efeito | Relação | Comparabilidade | Risco de viés | Peso |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-        ]
+        methodology_assessed = bool(verdict.get("certainty_label"))
+        lines += (
+            [
+                "| Ano | Estudo | Desenho | População (n) | Efeito | Relação | Comparabilidade | Risco de viés | Peso |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            ]
+            if methodology_assessed
+            else [
+                "| Ano | Estudo | Desenho declarado | População (n) | Efeito | Relação textual |",
+                "| --- | --- | --- | --- | --- | --- |",
+            ]
+        )
         for row in rows:
             title = row.get("title_pt") or row.get("title")
             status = EDITORIAL_LABELS.get(row.get("editorial_status") or "")
@@ -160,16 +174,17 @@ def _claim(index: int, analysis: Mapping[str, Any]) -> list[str]:
                 title = f"{title} [{status}]"
             link = row.get("url") or (f"https://doi.org/{row['doi']}" if row.get("doi") else None)
             study = f"[{_cell(title)}]({link})" if link else _cell(title)
-            lines.append(
-                "| "
-                + " | ".join(
+            cells = [
+                _cell(row.get("year")),
+                study,
+                _cell(row.get("design_label")),
+                _cell(f"{row.get('population') or 'Não informado'} ({row.get('sample_size') or '?'})"),
+                _cell(row.get("effect_estimate")),
+                _cell(RELATION_LABELS.get(row.get("relation"), row.get("relation"))),
+            ]
+            if methodology_assessed:
+                cells.extend(
                     (
-                        _cell(row.get("year")),
-                        study,
-                        _cell(row.get("design_label")),
-                        _cell(f"{row.get('population') or 'Não informado'} ({row.get('sample_size') or '?'})"),
-                        _cell(row.get("effect_estimate")),
-                        _cell(RELATION_LABELS.get(row.get("relation"), row.get("relation"))),
                         _cell(row.get("comparability_label")),
                         _cell(
                             f"{row.get('rob_label')} ({row.get('rob_tool_label')})"
@@ -179,11 +194,12 @@ def _claim(index: int, analysis: Mapping[str, Any]) -> list[str]:
                         _cell(row.get("weight")),
                     )
                 )
-                + " |"
-            )
+            lines.append("| " + " | ".join(cells) + " |")
         lines.append("")
         lines += ["### Citações dos estudos", ""]
         for row in rows:
+            for field, source in (row.get("field_sources") or {}).items():
+                lines.append(f"- **{_text(row.get('title'))} — {_text(field)}:** “{_text(source.get('text'))}” ({_text(source.get('section'))})")
             if not row.get("quote"):
                 continue
             location = ", ".join(

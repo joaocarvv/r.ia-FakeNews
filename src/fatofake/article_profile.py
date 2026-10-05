@@ -130,6 +130,10 @@ def build_article_dossier(
     corrections = sorted(
         item for item in update_types if item in {"correction", "erratum", "expression-of-concern"}
     )
+    if "published erratum" in normalized_types:
+        corrections.append("erratum")
+    if "expression of concern" in normalized_types:
+        corrections.append("expression-of-concern")
 
     return {
         "identity": {
@@ -168,6 +172,7 @@ def build_article_dossier(
             "corrections": corrections,
         },
         "methodology": {
+            "assessment_status": "NOT_EVALUATED",
             "study_design": design.design.value,
             "classification_source": design.source,
             "classification_explanation": design.rationale,
@@ -185,7 +190,7 @@ def build_article_dossier(
         "transparency": {
             "funding": _section_signal(
                 sections,
-                ("funding", "financial support", "acknowledg"),
+                ("funding", "financial support", "financiamento"),
                 "Seção de financiamento não localizada no texto disponível.",
             ),
             "conflicts_of_interest": _section_signal(

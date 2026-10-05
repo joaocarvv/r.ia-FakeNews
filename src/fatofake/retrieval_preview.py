@@ -6,6 +6,7 @@ import json
 import os
 import re
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 from time import perf_counter
 import time
@@ -59,6 +60,7 @@ from .federated_search import (
 from .input_validation import InputValidationError, validate_analysis_input
 from .pmc import ArticleContent, ContentRetrievalError, ContentSection, PmcClient
 from .pubmed import PubMedClient, PubMedError
+from .quality_validation import classify_study_design
 from .retrieval import Bm25Index, RetrievalError
 from .result_presentation import build_user_summary
 from .search_preparation import SearchPlan, prepare_search_plan
@@ -74,9 +76,7 @@ from .structured_logging import log_event, logged_step
 logger = logging.getLogger(__name__)
 
 
-RETRIEVAL_MODE_LABEL = (
-    "BUSCA REAL — texto completo priorizado, com proveniência por trecho"
-)
+RETRIEVAL_MODE_LABEL = "PUBMED/PMC — proveniência por trecho"
 _STOPWORDS = {
     "a",
     "as",
@@ -296,9 +296,15 @@ class RetrievalPreviewRunner:
         trial_registry: ClinicalTrialsRegistry | None = None,
         max_results_per_query: int = 5,
         max_analysis_articles: int = 5,
+        pubmed_only: bool = False,
     ) -> None:
         if max_analysis_articles < 1:
             raise ValueError("max_analysis_articles deve ser maior que zero.")
+        if pubmed_only and (
+            any(provider.name != "PubMed" for provider in search_engine.providers)
+            or any(item is not None for item in (openalex_graph, open_access_client, crossref_client, full_text_locator, trial_registry))
+        ):
+            raise ValueError("O modo PubMed-only não aceita fontes externas de literatura.")
         self.search_engine = search_engine
         self.planner = planner or GenericHealthQueryPlanner()
         self.abstract_client = abstract_client
@@ -311,6 +317,7 @@ class RetrievalPreviewRunner:
         self.trial_registry = trial_registry
         self.max_results_per_query = max_results_per_query
         self.max_analysis_articles = max_analysis_articles
+        self.pubmed_only = pubmed_only
 
     def _related_works(
         self, seed_pmids: Sequence[str]
@@ -856,11 +863,17 @@ class RetrievalPreviewRunner:
             stage="result_assembly",
             status="started",
         )
+        if self.pubmed_only:
+            designs = {
+                work_key(work): classify_study_design("", None, publication_types=work.publication_types).design.value
+                for work in works
+            }
+            assessments = tuple(replace(item, study_design=designs.get(item.pmid, "UNKNOWN")) for item in assessments)
         assessments_by_pmid = {item.pmid: item for item in assessments}
         editorial_by_identity: dict[str, tuple[str, str | None]] = {}
         with logged_step(logger, "editorial_status_check") as step:
             for work in works:
-                if work_key(work) in assessments_by_pmid:
+                if self.pubmed_only or work_key(work) in assessments_by_pmid:
                     editorial_by_identity[work.doi or work.pmid or work.url] = (
                         self._editorial_status(work)
                     )
@@ -911,11 +924,13 @@ class RetrievalPreviewRunner:
                 "work_key": work_key(work),
                 "quality": {
                     "study_design": (
-                        assessments_by_pmid[work_key(work)].study_design
+                        classify_study_design("", None, publication_types=work.publication_types).design.value
+                        if self.pubmed_only
+                        else assessments_by_pmid[work_key(work)].study_design
                         if work_key(work) in assessments_by_pmid
                         else "NOT_ASSESSED"
                     ),
-                    "level": "UNCLEAR",
+                    "level": "NOT_EVALUATED",
                     "is_retracted": editorial_by_identity.get(
                         work.doi or work.pmid or work.url, ("UNKNOWN", None)
                     )[0] == "RETRACTED",
@@ -1223,6 +1238,7 @@ class RetrievalPreviewRunner:
                 )
             ),
             queries=plan.queries,
+            assess_methodology=False,
         )
         if self.trial_registry is not None and claim_profile:
             with logged_step(logger, "trial_registry_lookup") as step:
@@ -1298,6 +1314,7 @@ def _refresh_claim_result(result: dict[str, Any]) -> dict[str, Any]:
             )
         ),
         queries=previous.get("queries") or (),
+        assess_methodology=False,
     )
     result["user_summary"] = build_user_summary(result)
     return result
@@ -1385,7 +1402,8 @@ class StudyTools:
         article["full_text_source"] = "PDF enviado pelo usuário"
         article["analyzed_passage_count"] = len(passages)
         article["analyzed_sections"] = list(dict.fromkeys(item.section for item in passages))
-        article.setdefault("quality", {})["study_design"] = assessment.study_design
+        if not self.runner.pubmed_only:
+            article.setdefault("quality", {})["study_design"] = assessment.study_design
         article["assessments"] = [
             {
                 "relation": assessment.relation,
@@ -1569,16 +1587,12 @@ def _optional_browser_fetcher() -> Crawl4AiFetcher | None:
         return None
 
 
-def create_live_retrieval_app(*, project_root: Path | None = None):
+def create_pubmed_only_app(*, project_root: Path | None = None):
+    """Compõe o MVP sem instanciar conectores de literatura externos ao NCBI."""
     root = project_root or Path(__file__).resolve().parents[2]
     _load_env(root / ".env")
     timeout = float(os.getenv("HTTP_TIMEOUT", "20"))
     email = os.getenv("NCBI_EMAIL") or None
-    openalex = OpenAlexClient(
-        email=email,
-        api_key=os.getenv("OPENALEX_API_KEY") or None,
-        timeout=timeout,
-    )
     pubmed_client = PubMedClient(
         email=email,
         api_key=os.getenv("NCBI_API_KEY") or None,
@@ -1589,13 +1603,9 @@ def create_live_retrieval_app(*, project_root: Path | None = None):
         api_key=os.getenv("NCBI_API_KEY") or None,
         timeout=timeout,
     )
-    crossref_client = CrossrefClient(email=email, timeout=timeout)
     engine = FederatedSearchEngine(
         (
             PubMedSearchProvider(pubmed_client),
-            OpenAlexSearchProvider(openalex),
-            ScieloSearchProvider(openalex),
-            EuropePmcSearchProvider(timeout=timeout),
         )
     )
     translator = MarianPortugueseEnglishTranslator(
@@ -1608,6 +1618,7 @@ def create_live_retrieval_app(*, project_root: Path | None = None):
             timeout=float(os.getenv("LLM_TIMEOUT", "120")),
             max_attempts=int(os.getenv("LLM_MAX_ATTEMPTS", "3")),
             retry_backoff=float(os.getenv("LLM_RETRY_BACKOFF", "1")),
+            assess_methodology=False,
         )
         if os.getenv("GEMINI_API_KEY")
         else None
@@ -1619,51 +1630,29 @@ def create_live_retrieval_app(*, project_root: Path | None = None):
         )
     except DocumentParsingError:
         document_parser = None
-    open_access_client = (
-        OpenAccessContentClient(
-            document_parser,
-            timeout=timeout,
-            browser_fetcher=_optional_browser_fetcher(),
-        )
-        if document_parser is not None
-        else None
-    )
-    full_text_locator = FullTextLocator(
-        email=os.getenv("UNPAYWALL_EMAIL") or email,
-        core_api_key=os.getenv("CORE_API_KEY") or None,
-        timeout=timeout,
-    )
     runner = RetrievalPreviewRunner(
         engine,
         planner=GenericHealthQueryPlanner(translator),
         abstract_client=pmc_client,
         evidence_analyzer=evidence_analyzer,
         related_client=pubmed_client,
-        openalex_graph=OpenAlexGraphExplorer(openalex),
-        open_access_client=open_access_client,
-        crossref_client=crossref_client,
-        full_text_locator=full_text_locator,
-        trial_registry=ClinicalTrialsRegistry(timeout=timeout),
+        pubmed_only=True,
     )
     service = AnalysisJobService(
         runner,
         store=SQLiteAnalysisJobStore(
-            os.getenv("JOB_DATABASE_PATH", str(root / "data" / "analysis-jobs.sqlite3"))
+            os.getenv("JOB_DATABASE_PATH", str(root / "data" / "analysis-jobs-pubmed.sqlite3"))
         ),
         result_serializer=lambda result: result,
         article_runner=(
             ArticleFirstAnalysisRunner(
                 GeminiArticleExtractor(evidence_analyzer),
                 runner,
-                PubMedReferenceResolver(pubmed_client, pmc_client, crossref_client),
+                PubMedReferenceResolver(pubmed_client, pmc_client),
                 document_parser,
                 GeminiWholeArticleAnalyzer(evidence_analyzer),
                 claim_structurer=GeminiClaimStructurer(evidence_analyzer),
-                open_access_resolver=(
-                    OpenAccessArticleResolver(full_text_locator, open_access_client)
-                    if open_access_client is not None
-                    else None
-                ),
+                pubmed_only=True,
             )
             if evidence_analyzer is not None
             else None
@@ -1675,6 +1664,11 @@ def create_live_retrieval_app(*, project_root: Path | None = None):
     app.extensions["fatofake_job_service"] = service
     _start_watch_thread(service)
     return app
+
+
+def create_live_retrieval_app(*, project_root: Path | None = None):
+    """Mantém o entrypoint existente usando o factory PubMed/PMC."""
+    return create_pubmed_only_app(project_root=project_root)
 
 
 def _start_watch_thread(service: AnalysisJobService) -> None:

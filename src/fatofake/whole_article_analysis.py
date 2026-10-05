@@ -249,10 +249,10 @@ class GeminiWholeArticleAnalyzer:
         }
 
     @staticmethod
-    def _prompt(resolved: ResolvedArticleDocument | None) -> str:
+    def _prompt(resolved: ResolvedArticleDocument | None, *, assess_methodology: bool = True) -> str:
         section_names = [title for title, _text in (resolved.sections if resolved else ())]
         inventory = ", ".join(section_names) or "não disponível"
-        return (
+        prompt = (
             "Leia TODO o artigo fornecido e produza um dossiê científico estruturado em "
             "português do Brasil. Isto não é uma conversa. Não use conhecimento externo "
             "e não complete lacunas por suposição. Diferencie explicitamente o que os autores "
@@ -273,6 +273,19 @@ class GeminiWholeArticleAnalyzer:
             "quando o documento não as trouxer. "
             f"Inventário de seções detectadas: {inventory}."
         )
+        if not assess_methodology:
+            prompt = prompt.replace(
+                "Diferencie explicitamente o que os autores relatam da sua interpretação metodológica.",
+                "Relate somente o que os autores declaram.",
+            ).replace(
+                "em limitations, as limitações metodológicas que você identificar.",
+                "em limitations, retorne uma lista vazia. Não julgue qualidade metodológica, risco de viés ou validade das conclusões.",
+            )
+            prompt += (
+                " Em study copie valores literais no idioma original; use 'Não informado' "
+                "quando não houver trecho explícito. Traduções e resumos ficam nos campos narrativos."
+            )
+        return prompt
 
     @staticmethod
     def _page_for_quote(
@@ -351,7 +364,8 @@ class GeminiWholeArticleAnalyzer:
         submission: ArticleSubmission,
         resolved: ResolvedArticleDocument | None,
     ) -> dict[str, Any]:
-        parts: list[dict[str, Any]] = [{"text": self._prompt(resolved)}]
+        assess_methodology = getattr(self.gateway, "assess_methodology", True)
+        parts: list[dict[str, Any]] = [{"text": self._prompt(resolved, assess_methodology=assess_methodology)}]
         payload: dict[str, Any] = {
             "generationConfig": {
                 "temperature": 0,
@@ -393,6 +407,17 @@ class GeminiWholeArticleAnalyzer:
         if not isinstance(decoded, dict):
             raise WholeArticleAnalysisError("O dossiê integral retornou formato inválido.")
         self._verify_citations(decoded, resolved)
+        if not assess_methodology:
+            decoded["limitations"] = []
+            decoded["methodology_assessment"] = "NOT_EVALUATED"
+            study = decoded.get("study") or {}
+            source = " ".join(resolved.text.split()) if resolved else ""
+            for field in ("design", "population", "sample_size", "intervention_or_exposure", "comparator", "follow_up", "cohort_or_dataset"):
+                value = " ".join(str(study.get(field) or "").split())
+                study[field] = value if value and value in source else "Não informado"
+            for field in ("outcomes", "statistical_methods", "registration_ids"):
+                study[field] = [value for value in study.get(field) or () if isinstance(value, str) and value and " ".join(value.split()) in source]
+            decoded["study"] = study
         decoded["coverage"] = self._coverage(decoded, resolved)
         decoded["model_name"] = self.gateway.model_name
         return decoded

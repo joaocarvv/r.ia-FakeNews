@@ -5,8 +5,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        INSTALL_CRAWL4AI: ${INSTALL_CRAWL4AI:-true}
     env_file:
       - .env
     environment:
@@ -14,8 +12,7 @@ services:
       SERVICE_NAME: fatofake
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FILE: /var/log/fatofake/app.jsonl
-      JOB_DATABASE_PATH: /var/lib/fatofake/analysis-jobs.sqlite3
-      ENABLE_CRAWL4AI: ${ENABLE_CRAWL4AI:-true}
+      JOB_DATABASE_PATH: /var/lib/fatofake/analysis-jobs-pubmed.sqlite3
       WATCH_INTERVAL_HOURS: ${WATCH_INTERVAL_HOURS:-24}
       LLM_MAX_ATTEMPTS: ${LLM_MAX_ATTEMPTS_DOCKER:-5}
       LLM_RETRY_BACKOFF: ${LLM_RETRY_BACKOFF_DOCKER:-2}

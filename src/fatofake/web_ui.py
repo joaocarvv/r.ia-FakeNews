@@ -247,7 +247,7 @@ WEB_UI_HTML = r"""<!doctype html>
       <div>
         <div class="eyebrow">Residência em Inteligência Artificial</div>
         <h1>Fato ou Fake?</h1>
-        <p class="subtitle">Envie um artigo para receber um dossiê completo da fonte e o cruzamento de suas principais alegações com literatura científica independente.</p>
+        <p class="subtitle">Envie um artigo para organizar sua leitura e localizar estudos relacionados exclusivamente no PubMed, com texto completo pelo PubMed Central quando disponível.</p>
       </div>
       <div class="mode">__MODE_LABEL__</div>
     </header>
@@ -256,9 +256,9 @@ WEB_UI_HTML = r"""<!doctype html>
       <h2 id="form-title">Qual artigo você quer verificar?</h2>
       <form id="analysis-form">
         <div class="field">
-          <label for="article-reference">Link ou DOI do artigo</label>
+          <label for="article-reference">Link do PubMed ou DOI indexado no PubMed</label>
           <input id="article-reference" maxlength="500" placeholder="https://pubmed.ncbi.nlm.nih.gov/... ou 10.xxxx/...">
-          <p class="hint">Informe um link/DOI ou escolha um arquivo abaixo — não os dois.</p>
+          <p class="hint">A pesquisa externa usa somente PubMed/PMC. Informe um link/DOI ou escolha um arquivo abaixo — não os dois.</p>
         </div>
         <div class="field">
           <label for="article-file">Imagem ou arquivo do artigo</label>
@@ -343,23 +343,23 @@ WEB_UI_HTML = r"""<!doctype html>
           <p id="compatibility-detail"></p>
         </article>
         <article class="panel indicator-card">
-          <div class="kicker">Confiança metodológica</div>
+          <div class="kicker">Transparência metodológica</div>
           <h3 id="methodology-label"></h3>
           <p id="methodology-detail"></p>
         </article>
-        <p class="indicator-note">Os três indicadores têm significados diferentes e não representam uma probabilidade de o artigo estar correto.</p>
+        <p class="indicator-note">A aplicação não atribui nota de qualidade metodológica nem probabilidade de o artigo estar correto.</p>
       </section>
       <section class="panel weighted" aria-labelledby="weighted-title">
-        <div class="kicker">Síntese ponderada · não é votação</div>
+        <div class="kicker">Balanço descritivo dos trechos</div>
         <div class="verdict-row"><h2 id="weighted-title"></h2><span id="weighted-certainty" class="badge"></span></div>
         <p id="weighted-explanation"></p>
-        <ul id="certainty-reasons" class="attempts" aria-label="Como a certeza foi graduada"></ul>
-        <div id="weighted-bars" class="weight-bars" aria-label="Peso metodológico por direção"></div>
+        <ul id="certainty-reasons" class="attempts" aria-label="Limites do balanço descritivo"></ul>
+        <div id="weighted-bars" class="weight-bars" aria-label="Contagem de artigos por relação textual"></div>
         <div id="weighted-absence" class="absence"></div>
         <p id="weighted-method" class="method-note"></p>
         <div class="actions" style="margin-top: 14px">
           <button id="complementary-search" type="button" class="secondary">Pesquisa complementar</button>
-          <span class="safety">Segue citações e referências do estudo mais forte, amplia a consulta e busca em português (SciELO) e no texto completo do Europe PMC, sem repetir o que já foi lido.</span>
+          <span class="safety">Amplia a consulta e procura artigos relacionados somente no PubMed, sem repetir o que já foi lido.</span>
         </div>
         <p id="complementary-status" class="complementary-status"></p>
         <div id="trial-registry"></div>
@@ -367,7 +367,7 @@ WEB_UI_HTML = r"""<!doctype html>
       <section class="panel weighted" aria-labelledby="map-title">
         <div class="kicker">Linha do tempo e mapa de concordância</div>
         <h3 id="map-title">Estudos recuperados por ano de publicação</h3>
-        <p class="article-meta">Cada ponto é um estudo. A faixa mostra a relação com a alegação; o tamanho, o peso metodológico. Pontos vazios foram encontrados mas não lidos.</p>
+        <p class="article-meta">Cada ponto é um estudo. A faixa mostra a relação encontrada nos trechos. Pontos vazios foram encontrados, mas não lidos.</p>
         <div id="evidence-map" class="evidence-map"></div>
         <div class="map-legend" id="map-legend"></div>
       </section>
@@ -385,9 +385,9 @@ WEB_UI_HTML = r"""<!doctype html>
       <section class="panel weighted" aria-labelledby="table-title">
         <div class="kicker">Extração padronizada por estudo</div>
         <h3 id="table-title">Tabela de evidências</h3>
-        <p class="article-meta">Títulos, achados e trechos traduzidos para o português; o original fica logo abaixo. Risco de viés avaliado com RoB 2, ROBINS-I ou AMSTAR 2 conforme o desenho, a partir dos trechos lidos.</p>
+        <p class="article-meta">Títulos, informações declaradas e trechos traduzidos para o português; o original permanece disponível para conferência. Qualidade metodológica e risco de viés não são avaliados automaticamente.</p>
         <div class="table-wrap"><table class="evidence-table"><thead><tr>
-          <th>Ano</th><th>Estudo</th><th>Desenho</th><th>População (n)</th><th>Intervenção × comparador</th><th>Desfecho e efeito</th><th>Relação</th><th>Comparabilidade</th><th>Risco de viés</th><th>Peso</th>
+          <th>Ano</th><th>Estudo</th><th>Desenho declarado</th><th>População (n)</th><th>Intervenção × comparador</th><th>Desfecho e efeito</th><th>Relação textual</th>
         </tr></thead><tbody id="evidence-rows"></tbody></table></div>
       </section>
       <div class="result-grid" style="margin-top: 20px">
@@ -621,7 +621,7 @@ WEB_UI_HTML = r"""<!doctype html>
     }
     function renderWeighted(weighted) {
       const verdict = weighted.verdict || {};
-      document.getElementById('weighted-title').textContent = text(verdict.label || 'Síntese ponderada indisponível');
+      document.getElementById('weighted-title').textContent = text(verdict.label || 'Balanço descritivo indisponível');
       const certainty = document.getElementById('weighted-certainty');
       certainty.textContent = verdict.certainty_label ? `Certeza ${verdict.certainty_label.toLowerCase()}` : '';
       certainty.style.display = verdict.certainty_label ? 'inline-block' : 'none';
@@ -693,7 +693,7 @@ WEB_UI_HTML = r"""<!doctype html>
           tooltip.textContent = '';
           const title = document.createElement('strong'); title.textContent = `${row.year} · ${row.title_pt || row.title}`; tooltip.appendChild(title);
           const detail = document.createElement('div');
-          detail.textContent = `${relationLabels[row.relation] || row.relation} · ${row.design_label}${row.assessed ? ` · peso ${(row.weight || 0).toFixed(2)}` : ''}${editorialLabels[row.editorial_status] ? ` · ${editorialLabels[row.editorial_status]}` : ''}`;
+          detail.textContent = `${relationLabels[row.relation] || row.relation} · ${row.design_label}${editorialLabels[row.editorial_status] ? ` · ${editorialLabels[row.editorial_status]}` : ''}`;
           tooltip.appendChild(detail);
           const box = host.getBoundingClientRect(); const scale = box.width / width;
           tooltip.style.left = `${Math.min(box.width - 300, Math.max(0, cx * scale + 12))}px`; tooltip.style.top = `${cy * scale + 12}px`;
@@ -749,30 +749,29 @@ WEB_UI_HTML = r"""<!doctype html>
         else if (row.duplicate_group) addTextElement(study, 'span', `Mesma população: ${row.duplicate_group}`, 'status-flag').dataset.status = 'PREPRINT';
         if (row.assessed && (row.finding_pt || row.quote)) {
           const more = document.createElement('details');
-          addTextElement(more, 'summary', 'Achado, trecho e viés');
+          addTextElement(more, 'summary', 'Achado e trecho citado');
           if (row.finding_pt) addTextElement(more, 'p', row.finding_pt);
           if (row.quote_pt) addTextElement(more, 'p', `“${row.quote_pt}”`, 'translated');
           if (row.quote) addTextElement(more, 'p', `Original: “${row.quote}”${row.quote_section ? ` — ${row.quote_section}` : ''}`, 'original');
           if (row.rationale) addTextElement(more, 'p', `Classificação: ${row.rationale}`, 'original');
-          if (row.comparability_notes) addTextElement(more, 'p', `Comparabilidade: ${row.comparability_notes}`, 'original');
-          if (row.comparability_check) addTextElement(more, 'p', `Comparabilidade ajustada pela checagem de conceitos: ${row.comparability_check}`, 'original');
-          if ((row.rob_domains || []).length) {
-            const list = document.createElement('ul');
-            row.rob_domains.forEach(domain => addTextElement(list, 'li', `${domain.domain}: ${domain.judgment}${domain.reason ? ` — ${domain.reason}` : ''}`));
-            more.appendChild(list);
-          }
           study.appendChild(more);
         }
         cell(tr, study);
+        if (Object.keys(row.field_sources || {}).length) {
+          const sources = document.createElement('details');
+          addTextElement(sources, 'summary', 'Fontes dos dados extraídos');
+          Object.entries(row.field_sources).forEach(([field, source]) => {
+            addTextElement(sources, 'p', `${field}: “${source.text}” — ${source.section || 'seção não identificada'}${source.page ? `, p. ${source.page}` : ''}`);
+            previewLink(sources, 'Conferir fonte', source.source_url || row.url);
+          });
+          study.appendChild(sources);
+        }
         cell(tr, row.design_detail || row.design_label);
         cell(tr, [row.population, row.sample_size ? `n = ${row.sample_size}` : null].filter(Boolean).join(' · '));
         cell(tr, [row.intervention_or_exposure, row.comparator].filter(Boolean).join(' × '));
         cell(tr, [row.outcome, row.effect_estimate].filter(Boolean).join(' — '));
         const relation = document.createElement('span'); relation.className = 'rel'; relation.dataset.relation = row.relation;
         relation.textContent = relationLabels[row.relation] || row.relation; cell(tr, relation);
-        cell(tr, row.comparability_label);
-        cell(tr, row.rob_label ? `${row.rob_label}${row.rob_tool_label ? ` (${row.rob_tool_label})` : ''}` : null);
-        cell(tr, row.assessed ? (row.weight || 0).toFixed(2) : null);
         body.appendChild(tr);
       });
     }
@@ -888,7 +887,6 @@ WEB_UI_HTML = r"""<!doctype html>
         addTextElement(finding, 'h3', `Relação com a alegação: ${relationLabels[row.relation] || row.relation}`);
         if (row.finding_pt) addTextElement(finding, 'p', row.finding_pt);
         if (row.rationale) addTextElement(finding, 'p', row.rationale, 'article-meta');
-        if (row.comparability_check) addTextElement(finding, 'p', `Comparabilidade ajustada: ${row.comparability_check}`, 'article-meta');
         if (row.quote_pt) addTextElement(finding, 'p', `“${row.quote_pt}”`, 'translated');
         body.appendChild(finding);
       }
@@ -1094,6 +1092,10 @@ WEB_UI_HTML = r"""<!doctype html>
         addDossierItem('Transparência',
           `Financiamento: ${transparency.funding?.status || 'UNKNOWN'}. Conflitos de interesse: ${transparency.conflicts_of_interest?.status || 'UNKNOWN'}. ` +
           `Disponibilidade de dados: ${transparency.data_availability?.status || 'UNKNOWN'}.`);
+        Object.entries(transparency).forEach(([field, signal]) => {
+          if (signal.excerpt) addDossierItem(`Trecho de ${field.replaceAll('_', ' ')}`, `${signal.section}: “${signal.excerpt}”`);
+        });
+        if (sample.status === 'FOUND') addDossierItem('Origem da amostra', sample.explanation);
         addDossierItem('Limites da ficha',
           `${dossier.results_conclusion_consistency?.explanation || 'Consistência entre resultados e conclusão não avaliada.'}`);
       }
@@ -1212,7 +1214,7 @@ WEB_UI_HTML = r"""<!doctype html>
         addTextElement(button, 'span', `Alegação ${index + 1}`, 'claim-number');
         addTextElement(button, 'span', analysis.claim?.text || analysis.claim_id, 'claim-text');
         const verdict = analysis.result.weighted_evidence?.verdict;
-        addTextElement(button, 'span', verdict ? `${verdict.label} · certeza ${verdict.certainty_label.toLowerCase()}` : (statusLabels[summary.status] || summary.headline || 'Resultado disponível'), 'claim-outcome');
+        addTextElement(button, 'span', verdict ? `${verdict.label}${verdict.certainty_label ? ` · certeza ${verdict.certainty_label.toLowerCase()}` : ''}` : (statusLabels[summary.status] || summary.headline || 'Resultado disponível'), 'claim-outcome');
         addTextElement(button, 'span', `${assessed} estudo(s) analisado(s) · ${direct} comparação(ões) direta(s)`, 'claim-metrics');
         button.addEventListener('click', () => selectAnalysis(index, false));
         tabs.appendChild(button);

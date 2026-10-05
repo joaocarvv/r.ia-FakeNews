@@ -197,7 +197,8 @@ class StudyToolsTests(unittest.TestCase):
         article = updated["articles"][0]
         self.assertEqual(article["access_level"], "USER_PROVIDED_FULL_TEXT")
         self.assertEqual(article["assessments"][0]["relation"], "SUPPORTS")
-        self.assertEqual(updated["weighted_evidence"]["verdict"]["code"], "WEIGHTED_SUPPORT")
+        self.assertEqual(updated["weighted_evidence"]["verdict"]["code"], "EVIDENCE_BALANCE_SUPPORT")
+        self.assertEqual(updated["weighted_evidence"]["verdict"]["certainty"], "NOT_ASSESSED")
         self.assertEqual(updated["weighted_evidence"]["rows"][0]["title_pt"], "Estudo SciELO")
         self.assertEqual(analyzer.calls[0][2], {"population": "Adultos"})
 

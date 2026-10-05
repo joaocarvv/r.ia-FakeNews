@@ -16,11 +16,6 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch>=2.2,<3" \
     && pip install --no-cache-dir -r requirements.txt
 
-# Navegador headless para páginas abertas montadas por JavaScript (opcional).
-ARG INSTALL_CRAWL4AI=true
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN if [ "$INSTALL_CRAWL4AI" = "true" ]; then         pip install --no-cache-dir "crawl4ai>=0.6,<1"         && python -m playwright install --with-deps chromium         && chmod -R a+rX /opt/ms-playwright;     fi
-
 COPY src ./src
 COPY run_acceptance_app.py ./
 

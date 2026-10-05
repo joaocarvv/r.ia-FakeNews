@@ -45,6 +45,7 @@ def build_verification_indicators(
     *,
     articles: Sequence[dict[str, Any]],
     research_context: str,
+    assess_methodology: bool = True,
 ) -> dict[str, Any]:
     """Separa cobertura, direção das evidências e qualidade metodológica."""
 
@@ -135,6 +136,48 @@ def build_verification_indicators(
         methodological_level = "MIXED"
         methodological_label = "Confiança metodológica heterogênea"
 
+    methodology = {
+        "level": methodological_level,
+        "label": methodological_label,
+        "assessed_article_count": assessed,
+        "quality_counts": {
+            "HIGH": quality_counts["HIGH"],
+            "MODERATE": quality_counts["MODERATE"],
+            "LOW": quality_counts["LOW"],
+            "UNKNOWN": quality_counts["UNKNOWN"],
+        },
+        "study_design_counts": dict(sorted(study_design_counts.items())),
+        "retracted_count": retracted_count,
+        "registered_protocol_count": registered_protocol_count,
+        "data_available_count": data_available_count,
+        "clinical_registration_applicable": research_context == "CLINICAL",
+        "explanation": (
+            f"Qualidade informada para {assessed} artigos: "
+            f"{quality_counts['HIGH']} alta, {quality_counts['MODERATE']} moderada, "
+            f"{quality_counts['LOW']} baixa e {quality_counts['UNKNOWN']} desconhecida; "
+            f"{registered_protocol_count} com protocolo localizado, "
+            f"{data_available_count} com dados associados e {retracted_count} retratados. "
+            "Citações e ramificações não alteram esta classificação."
+        ),
+    }
+    if not assess_methodology:
+        methodology = {
+            "level": "NOT_EVALUATED",
+            "label": "Qualidade metodológica não avaliada automaticamente",
+            "assessed_article_count": 0,
+            "quality_counts": {},
+            "study_design_counts": dict(sorted(study_design_counts.items())),
+            "retracted_count": retracted_count,
+            "registered_protocol_count": 0,
+            "data_available_count": 0,
+            "clinical_registration_applicable": False,
+            "explanation": (
+                "A aplicação apresenta somente informações metodológicas explícitas e "
+                "rastreáveis. Adequação do desenho, risco de viés e validade das "
+                "conclusões exigem revisão humana especializada."
+            ),
+        }
+
     return {
         "search_coverage": {
             "status": coverage_status,
@@ -166,30 +209,7 @@ def build_verification_indicators(
                 f"{relations['INCONCLUSIVE']} inconclusivos."
             ),
         },
-        "methodological_confidence": {
-            "level": methodological_level,
-            "label": methodological_label,
-            "assessed_article_count": assessed,
-            "quality_counts": {
-                "HIGH": quality_counts["HIGH"],
-                "MODERATE": quality_counts["MODERATE"],
-                "LOW": quality_counts["LOW"],
-                "UNKNOWN": quality_counts["UNKNOWN"],
-            },
-            "study_design_counts": dict(sorted(study_design_counts.items())),
-            "retracted_count": retracted_count,
-            "registered_protocol_count": registered_protocol_count,
-            "data_available_count": data_available_count,
-            "clinical_registration_applicable": research_context == "CLINICAL",
-            "explanation": (
-                f"Qualidade informada para {assessed} artigos: "
-                f"{quality_counts['HIGH']} alta, {quality_counts['MODERATE']} moderada, "
-                f"{quality_counts['LOW']} baixa e {quality_counts['UNKNOWN']} desconhecida; "
-                f"{registered_protocol_count} com protocolo localizado, "
-                f"{data_available_count} com dados associados e {retracted_count} retratados. "
-                "Citações e ramificações não alteram esta classificação."
-            ),
-        },
+        "methodological_confidence": methodology,
     }
 
 

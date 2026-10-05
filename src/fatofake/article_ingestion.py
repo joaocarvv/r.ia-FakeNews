@@ -340,7 +340,7 @@ class PubMedReferenceResolver:
         parsed = urlparse(submission.reference)
         if parsed.hostname not in {"pubmed.ncbi.nlm.nih.gov", "www.ncbi.nlm.nih.gov"}:
             return None
-        match = re.search(r"/(?:pubmed/)?(\d{5,10})(?:/|$)", parsed.path)
+        match = re.fullmatch(r"/(?:pubmed/)?(\d{1,10})/?", parsed.path)
         return match.group(1) if match else None
 
     def resolve(self, submission: ArticleSubmission) -> ResolvedArticleDocument | None:
@@ -425,13 +425,21 @@ class PubMedReferenceResolver:
 
 def _normalize_reference(value: str) -> tuple[str, str]:
     normalized = value.strip()
+    if re.fullmatch(r"\d{1,10}", normalized):
+        return f"https://pubmed.ncbi.nlm.nih.gov/{normalized}/", "url"
     possible_doi = DOI_PREFIX_PATTERN.sub("", normalized).strip()
     if DOI_PATTERN.fullmatch(possible_doi):
         return possible_doi, "doi"
     parsed = urlparse(normalized)
-    if parsed.scheme in {"http", "https"} and parsed.netloc:
+    if (
+        parsed.scheme in {"http", "https"}
+        and parsed.hostname in {"pubmed.ncbi.nlm.nih.gov", "www.ncbi.nlm.nih.gov"}
+        and re.fullmatch(r"/(?:pubmed/)?\d{1,10}/?", parsed.path)
+    ):
         return normalized, "url"
-    raise InputValidationError("Informe um DOI ou link HTTP(S) válido para o artigo.")
+    raise InputValidationError(
+        "Informe um PMID, DOI ou link de artigo do PubMed válido."
+    )
 
 
 def validate_article_submission(payload: Mapping[str, Any]) -> ArticleSubmission:
@@ -793,6 +801,7 @@ class ArticleFirstAnalysisRunner:
         whole_article_analyzer: WholeArticleAnalyzer | None = None,
         claim_structurer: GeminiClaimStructurer | None = None,
         open_access_resolver: OpenAccessArticleResolver | None = None,
+        pubmed_only: bool = False,
     ) -> None:
         self.extractor = extractor
         self.evidence_runner = evidence_runner
@@ -801,6 +810,7 @@ class ArticleFirstAnalysisRunner:
         self.whole_article_analyzer = whole_article_analyzer
         self.claim_structurer = claim_structurer
         self.open_access_resolver = open_access_resolver
+        self.pubmed_only = pubmed_only
 
     @staticmethod
     def _submitted_population(whole_article_analysis: Mapping[str, Any] | None) -> list[str]:
@@ -935,6 +945,7 @@ class ArticleFirstAnalysisRunner:
         verification["indicators"] = build_verification_indicators(
             articles=tuple(result.get("articles") or ()),
             research_context=extracted.research_context,
+            assess_methodology=False,
         )
         if extracted.research_context != "CLINICAL":
             verification["clinical_trials"] = {
@@ -1005,6 +1016,11 @@ class ArticleFirstAnalysisRunner:
                 else None
             )
             step["resolved"] = resolved is not None
+        if self.pubmed_only and submission.reference and resolved is None:
+            raise ArticleIngestionError(
+                "Não foi possível obter o artigo pelo PubMed/PMC. "
+                "Confira o DOI ou link do PubMed, ou envie o PDF."
+            )
         if resolved is None and self.open_access_resolver is not None:
             with logged_step(logger, "open_access_article_resolution") as step:
                 try:
@@ -1052,7 +1068,7 @@ class ArticleFirstAnalysisRunner:
                 text=resolved.text if resolved else "",
                 sections=resolved.sections if resolved else (),
                 identity=resolved.identity_verification if resolved else None,
-                llm_context=extracted.research_context,
+                llm_context=None if self.pubmed_only else extracted.research_context,
                 absolute_language=extracted.absolute_language,
                 source_url=(resolved.source_url if resolved else submission.reference),
             )
@@ -1214,6 +1230,7 @@ class ArticleFirstAnalysisRunner:
                             for source in (article.get("retrieval") or {}).get("sources") or ()
                         )
                     ),
+                    assess_methodology=False,
                 )
             with logged_step(
                 logger,

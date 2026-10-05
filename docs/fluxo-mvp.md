@@ -1,5 +1,36 @@
 # Fluxo principal do MVP
 
+## Escopo vigente: branch `refactor/pubmed-only-mvp`
+
+O usuário envia PMID, DOI, link de artigo do PubMed ou PDF/imagem. A aplicação
+resolve referências somente pelo PubMed/PMC. Se não conseguir obter o artigo,
+solicita o PDF; não envia a URL para navegação do Gemini.
+
+A leitura extrai informações e alegações do documento para encontrar estudos
+relacionados exclusivamente no PubMed. O PMC fornece texto completo quando
+disponível; caso contrário, a comparação fica limitada ao abstract do PubMed.
+O Gemini continua responsável pela classificação textual e pelos resumos. Isso
+ainda não demonstra relevância clínica nem correção das interpretações.
+
+O desenho dos estudos recuperados vem de `PublicationType`. Campos factuais
+extraídos pelo Gemini na tabela de comparação só são conservados quando aparecem
+literalmente nos trechos enviados ao modelo, com sua proveniência. Essa checagem
+comprova a ocorrência do texto, mas não a interpretação ou adequação metodológica.
+
+Não há avaliação automática de risco de viés, GRADE ou nota de qualidade. A síntese
+é um balanço descritivo de trechos, sem ponderação metodológica; artigos com sinal
+de retratação não contribuem para esse balanço. Financiamento, conflitos, amostra
+e protocolos encontrados compõem uma ficha de transparência.
+
+O factory `create_pubmed_only_app` é usado pelo entrypoint existente
+`create_live_retrieval_app`. Os módulos e notebooks abaixo registram o trabalho
+anterior e não representam todos os componentes ativos nesta branch.
+
+Validação de software: `tests/test_pubmed_only_mvp.py`, junto à suíte existente.
+Avaliação com ground truth e treinamento supervisionado permanecem pendentes.
+
+## Histórico da implementação anterior
+
 ## Objetivo
 
 Permitir que o usuário verifique uma alegação sobre saúde com base em evidências científicas.

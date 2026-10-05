@@ -1,10 +1,31 @@
-# Fato ou Fake? — POC orientada a evidências
+# Fato ou Fake? — MVP PubMed/PMC orientado a evidências
 
 O fluxo principal definido para o MVP está documentado em [`docs/fluxo-mvp.md`](docs/fluxo-mvp.md).
 
-Jupyter Notebook executável para verificar afirmações pelo cruzamento de fontes reais. O pipeline analisa a claim e agora suporta pesquisa federada em PubMed, OpenAlex e periódicos SciELO indexados pelo OpenAlex; em seguida, normaliza e deduplica documentos, cria chunks, executa busca híbrida, classifica as evidências e gera uma síntese com as fontes utilizadas.
+O runtime desta branch usa somente o ecossistema da National Library of Medicine: pesquisa e metadados pelo PubMed e texto completo pelo PubMed Central (PMC), quando disponível. PDFs enviados pelo usuário continuam aceitos como documento de entrada. Integrações históricas com outras bases permanecem no código para preservar o trabalho anterior, mas não são instanciadas pela aplicação.
 
-A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou falso. O resultado descreve o conjunto recuperado como `EVIDENCE_SUPPORTS`, `EVIDENCE_AGAINST`, `INCONCLUSIVE` ou `CONFLICTING_EVIDENCE`.
+A aplicação não declara que um artigo é verdadeiro, falso ou metodologicamente confiável. O modelo organiza trechos citáveis e descreve relações textuais; desenho, amostra, população e transparência são apresentados apenas quando explicitamente encontrados. Risco de viés, adequação metodológica e validade das conclusões ficam marcados como não avaliados automaticamente.
+
+## Escopo desta branch
+
+- Fonte de descoberta: PubMed.
+- Texto integral automatizado: somente PMC.
+- Fallback: abstract do PubMed, identificado na interface.
+- Entrada opcional: PDF ou imagem enviados pelo usuário.
+- Sem OpenAlex, SciELO, Europe PMC, Unpaywall, Semantic Scholar, Crossref, DataCite ou ClinicalTrials.gov no runtime.
+- Sem pontuação automática de qualidade, GRADE, RoB 2, ROBINS-I ou AMSTAR 2.
+
+O entrypoint `create_live_retrieval_app` delega ao factory `create_pubmed_only_app`.
+PMID, DOI e links de artigo do PubMed são aceitos; referências sem conteúdo
+recuperável no PubMed/PMC pedem o PDF, sem navegação do LLM. Dados factuais da
+tabela de comparação são conservados somente se encontrados literalmente nos
+trechos fornecidos, com seção e fonte. Isso não valida a interpretação científica.
+O classificador continua sendo o Gemini; treinamento supervisionado e avaliação
+com ground truth não foram implementados nesta redução de escopo.
+
+O banco padrão desta branch é `data/analysis-jobs-pubmed.sqlite3`, preservando os
+relatórios anteriores em `analysis-jobs.sqlite3`. Uma configuração explícita de
+`JOB_DATABASE_PATH` continua sendo respeitada.
 
 ## Arquivos principais
 
@@ -109,10 +130,6 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 | `TRANSLATION_MODEL` | Não | `Helsinki-NLP/opus-mt-ROMANCE-en` | Traduz localmente a alegação em português para ampliar a busca científica em inglês; não produz o veredito. |
 | `NCBI_API_KEY` | Não | vazio | Aumenta o limite da API do NCBI. A POC funciona sem essa chave. |
 | `NCBI_EMAIL` | Recomendada | vazio | Identifica o responsável pelas chamadas ao NCBI. Use um e-mail de contato válido. |
-| `OPENALEX_API_KEY` | Recomendada | vazio | Autentica a busca no OpenAlex; obtenha uma chave gratuita para limites mais estáveis. |
-| `SPRINGER_META_API_KEY` | Não | vazio | Habilita a busca de metadados da Springer Nature na auditoria de fontes. |
-| `SPRINGER_OPENACCESS_API_KEY` | Não | vazio | Habilita a busca de conteúdo aberto da Springer Nature na auditoria de fontes. |
-| `ELSEVIER_API_KEY` | Não | vazio | Habilita a busca na API ScienceDirect da Elsevier na auditoria de fontes. |
 | `MAX_SOURCES` | Não | `8` | Máximo de publicações recuperadas por claim. |
 | `CHUNK_WORDS` | Não | `60` | Tamanho aproximado de cada chunk em palavras. |
 | `CHUNK_OVERLAP` | Não | `12` | Sobreposição entre chunks consecutivos. Deve ser menor que `CHUNK_WORDS`. |
@@ -123,7 +140,6 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 | `LLM_RETRY_BACKOFF` | Não | `1` | Espera exponencial inicial, em segundos, entre tentativas da Gemini. |
 | `DOCUMENT_MAX_PAGES` | Não | `100` | Limite de páginas processadas localmente pelo LiteParse. |
 | `DOCUMENT_PARSE_TIMEOUT` | Não | `45` | Limite, em segundos, para interpretar um documento local. |
-| `WEB_URLS` | Não | vazio | URLs públicas adicionais, separadas por vírgula. Exige Crawl4AI. |
 
 Exemplo completo:
 
@@ -134,17 +150,12 @@ GEMINI_API_KEY=cole_sua_chave_aqui
 LLM_MODEL=gemini-flash-lite-latest
 NCBI_API_KEY=
 NCBI_EMAIL=seu-email@exemplo.com
-OPENALEX_API_KEY=
-SPRINGER_META_API_KEY=
-SPRINGER_OPENACCESS_API_KEY=
-ELSEVIER_API_KEY=
 MAX_SOURCES=8
 CHUNK_WORDS=60
 CHUNK_OVERLAP=12
 TOP_K=6
 HTTP_TIMEOUT=20
 LLM_TIMEOUT=120
-WEB_URLS=
 ```
 
 ## 5. Chave opcional do NCBI/PubMed
@@ -185,30 +196,7 @@ Para executar e salvar todas as saídas pelo terminal:
 .venv/Scripts/python.exe -m jupyter nbconvert --to notebook --execute --inplace fato_ou_fake_poc.ipynb --ExecutePreprocessor.timeout=300
 ```
 
-## 7. Usar páginas adicionais com Crawl4AI
-
-Essa etapa é opcional. Instale as dependências extras:
-
-```powershell
-uv pip install --python .venv/Scripts/python.exe -r requirements-live.txt
-.venv/Scripts/crawl4ai-setup.exe
-```
-
-Se o executável de setup não estiver disponível no Windows, use:
-
-```powershell
-.venv/Scripts/python.exe -m playwright install chromium
-```
-
-Depois informe somente URLs públicas e autorizadas, separadas por vírgula:
-
-```dotenv
-WEB_URLS=https://exemplo.org/pagina-a,https://exemplo.org/pagina-b
-```
-
-O adaptador acessa apenas essas URLs e verifica `robots.txt`. Consulte a [documentação oficial de instalação do Crawl4AI](https://docs.crawl4ai.com/basic/installation/).
-
-## 8. Uso no código
+## 7. Uso no código
 
 Depois de executar as células de definição:
 
@@ -256,54 +244,34 @@ analisados, atualidade, citações e ramificação — e não a chance de o arti
    diagnóstica, prognóstica…), PICO e importância estimada. Texto editado é
    reestruturado (PICO e conceitos) antes da busca. O usuário escolhe busca rápida
    ou revisão profunda e vê tempo, tokens e custo estimados antes de investigar.
-3. **Investigação.** As consultas do PubMed são booleanas, montadas a partir de
-   conceitos em inglês com sinônimos; a tradução livre (Marian) fica como reserva.
-   Para cada estudo recuperado o texto integral é buscado em PMC, Europe PMC,
-   Unpaywall, Semantic Scholar e no link aberto do OpenAlex (respeitando
-   robots.txt; Crawl4AI renderiza páginas dependentes de JavaScript). Estudos sem
-   PMID (SciELO, OpenAlex) também são lidos. Cada estudo vira uma linha
-   padronizada: PICO, efeito com IC, comparabilidade com a alegação, risco de viés
-   (RoB 2, ROBINS-I ou AMSTAR 2), registros/coortes e tradução para o português.
+3. **Investigação.** As consultas são enviadas somente ao PubMed. Para cada PMID,
+   o texto integral é obtido pelo PMC quando disponível; caso contrário, a análise
+   fica explicitamente limitada ao abstract. A tabela copia informações factuais
+   e trechos citáveis, sem atribuir risco de viés ou nota metodológica.
 
-A síntese não é votação: cada estudo pesa por desenho × comparabilidade × risco
-de viés × acesso ao texto × situação editorial. Estudos da mesma população
-(mesmo registro ou coorte) dividem um peso; retratados (PubMed/Crossref) ficam
-com peso zero; preprints e manifestações de preocupação pesam menos. O resultado
-separa “não encontrado” de “não existe”, mostra linha do tempo e mapa de
-concordância, permite enviar o PDF de um estudo fechado para reavaliá-lo,
-verificar novos estudos (manual ou a cada `WATCH_INTERVAL_HOURS`) e exportar o
-relatório em Markdown (`GET /api/v1/analyses/<id>/report.md`) ou PDF (impressão
-do navegador). Modelos, consultas, data e parâmetros ficam registrados em
-`reproducibility`.
+O resultado separa “não encontrado” de “não existe”, mostra a linha do tempo,
+permite enviar o PDF de um estudo fechado e exporta o relatório em Markdown ou
+pela impressão do navegador. Modelos, consultas, data e parâmetros ficam
+registrados em `reproducibility`.
 
 A aplicação não contorna paywalls: para artigos fechados, envie o PDF ao qual
 você tem acesso.
 
 #### Busca e recuperação
 
-- **Fontes:** PubMed (com filtros Clinical Queries conforme o tipo da alegação:
-  Therapy, Diagnosis, Prognosis, Etiology), OpenAlex, SciELO via OpenAlex e
-  Europe PMC (título/resumo, inclui preprints). Consultas com tags do PubMed só
-  vão ao PubMed.
-- **Texto integral:** PMC, Europe PMC (também por PMID, recuperando o DOI de
-  registros antigos), todas as localizações abertas do OpenAlex, Unpaywall,
-  Semantic Scholar e CORE (`CORE_API_KEY`). Cada estudo registra as tentativas e
-  o motivo de ter ficado só no abstract (bloqueio do editor, robots.txt, sem
-  cópia aberta). Proteções anti-bot (Cloudflare) não são contornadas.
+- **Fonte:** exclusivamente PubMed, com filtros Clinical Queries quando aplicáveis.
+- **Texto integral:** exclusivamente PMC; na ausência, usa somente o abstract do
+  PubMed e informa essa limitação.
 - **Pesquisa complementar** (`POST /api/v1/analyses/<id>/claims/<claim>/complementary-search`):
-  bola de neve a partir do estudo de maior peso, consulta ampliada e termos em
+  artigos relacionados no PubMed, consulta ampliada e termos em
   português; estudos indiretos e neutros são descartados.
-- **ClinicalTrials.gov:** para alegações terapêuticas/preventivas, mostra ensaios
-  registrados e quantos não têm resultados (sinal de viés de publicação).
-- **Checagem de comparabilidade:** se a intervenção/exposição da alegação não
-  aparece no texto lido do estudo, a comparação é rebaixada para indireta,
-  independentemente do que o modelo disse.
+- **Metodologia:** exibe apenas desenho declarado, amostra, população, intervenção,
+  comparador, desfecho, registros e declarações encontradas no texto. Adequação do
+  desenho, risco de viés e validade das conclusões não são avaliados automaticamente.
 - **Prévias:** `GET /api/v1/analyses/<id>/source` devolve o texto lido do artigo
   enviado (por página/seção); a interface destaca os trechos de origem.
 
-Chaves recomendadas: `OPENALEX_API_KEY` (sem ela a cota diária do IP se esgota e
-OpenAlex/SciELO/bola de neve param de responder), `NCBI_API_KEY` (eleva o limite
-do PubMed de 3 para 10 requisições/s) e `UNPAYWALL_EMAIL`.
+Chaves recomendadas: `NCBI_API_KEY` e `NCBI_EMAIL` para acesso estável às APIs do NCBI.
 
 ## 9. Executar com Docker e acompanhar logs no Grafana
 

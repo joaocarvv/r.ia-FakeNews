@@ -156,6 +156,8 @@ def build_evidence_rows(
     articles: Sequence[Mapping[str, Any]],
     claim_profile: Mapping[str, Any] | None = None,
     submitted_population: Sequence[str] = (),
+    *,
+    assess_methodology: bool = True,
 ) -> list[dict[str, Any]]:
     concept_groups = [list(group) for group in (claim_profile or {}).get("concept_groups") or ()]
     claim_type = (claim_profile or {}).get("claim_type")
@@ -167,22 +169,34 @@ def build_evidence_rows(
         evidence = (assessment or {}).get("evidence") or {}
         design = str((article.get("quality") or {}).get("study_design") or "NOT_ASSESSED")
         relation = (assessment or {}).get("relation") or "NOT_ASSESSED"
-        comparability = study_row.get("comparability") or ("INDIRECT" if assessment else None)
+        comparability = (
+            study_row.get("comparability") or ("INDIRECT" if assessment else None)
+            if assess_methodology
+            else None
+        )
         model_comparability = comparability
         coverage = concept_coverage(article, concept_groups) if assessment and concept_groups else []
-        comparability, comparability_check = _checked_comparability(
-            comparability, coverage, claim_type
-        )
-        rob = study_row.get("rob_overall") or "UNCLEAR"
+        if assess_methodology:
+            comparability, comparability_check = _checked_comparability(
+                comparability, coverage, claim_type
+            )
+            rob = study_row.get("rob_overall") or "UNCLEAR"
+        else:
+            comparability_check = None
+            rob = None
         access = str(article.get("access_level") or "METADATA_ONLY")
         status = editorial_status(article)
-        factors = {
-            "design": DESIGN_WEIGHTS.get(design, 0.25),
-            "comparability": COMPARABILITY_WEIGHTS.get(comparability or "", 0.0),
-            "risk_of_bias": ROB_WEIGHTS.get(rob, 0.6),
-            "access": ACCESS_WEIGHTS.get(access, 0.8 if assessment else 0.0),
-            "editorial": EDITORIAL_WEIGHTS.get(status, 1.0),
-        }
+        factors = (
+            {
+                "design": DESIGN_WEIGHTS.get(design, 0.25),
+                "comparability": COMPARABILITY_WEIGHTS.get(comparability or "", 0.0),
+                "risk_of_bias": ROB_WEIGHTS.get(rob or "UNCLEAR", 0.6),
+                "access": ACCESS_WEIGHTS.get(access, 0.8 if assessment else 0.0),
+                "editorial": EDITORIAL_WEIGHTS.get(status, 1.0),
+            }
+            if assess_methodology
+            else {"editorial_eligibility": 0.0 if status == "RETRACTED" else 1.0}
+        )
         weight = 0.0
         if assessment and relation != "UNCERTAIN":
             weight = 1.0
@@ -205,6 +219,7 @@ def build_evidence_rows(
                 "design_detail": study_row.get("design_detail") or None,
                 "population": study_row.get("population") or None,
                 "sample_size": study_row.get("sample_size") or None,
+                "field_sources": dict(study_row.get("field_sources") or {}),
                 "intervention_or_exposure": study_row.get("intervention_or_exposure") or None,
                 "comparator": study_row.get("comparator") or None,
                 "outcome": study_row.get("outcome") or None,
@@ -217,15 +232,23 @@ def build_evidence_rows(
                 "rationale": (assessment or {}).get("rationale"),
                 "comparability": comparability,
                 "comparability_label": COMPARABILITY_LABELS.get(comparability or "", None),
-                "comparability_notes": study_row.get("comparability_notes") or None,
+                "comparability_notes": (study_row.get("comparability_notes") or None) if assess_methodology else None,
                 "comparability_check": comparability_check,
                 "model_comparability": model_comparability,
                 "concept_coverage": coverage,
-                "rob_tool": study_row.get("rob_tool") or None,
-                "rob_tool_label": ROB_TOOL_LABELS.get(study_row.get("rob_tool") or "", None),
-                "rob_overall": rob if assessment else None,
-                "rob_label": ROB_LABELS.get(rob) if assessment else None,
-                "rob_domains": list(study_row.get("rob_domains") or ()),
+                "rob_tool": study_row.get("rob_tool") if assess_methodology else None,
+                "rob_tool_label": (
+                    ROB_TOOL_LABELS.get(study_row.get("rob_tool") or "", None)
+                    if assess_methodology
+                    else None
+                ),
+                "rob_overall": rob if assessment and assess_methodology else None,
+                "rob_label": ROB_LABELS.get(rob) if assessment and assess_methodology else None,
+                "rob_domains": (
+                    list(study_row.get("rob_domains") or ())
+                    if assess_methodology
+                    else []
+                ),
                 "registration_ids": list(study_row.get("registration_ids") or ()),
                 "cohort_or_dataset": study_row.get("cohort_or_dataset") or None,
                 "access_level": access,
@@ -243,7 +266,8 @@ def build_evidence_rows(
                 "sources": list((article.get("retrieval") or {}).get("sources") or ()),
             }
         )
-    _mark_duplicate_populations(rows, submitted_population)
+    if assess_methodology:
+        _mark_duplicate_populations(rows, submitted_population)
     return rows
 
 
@@ -384,8 +408,14 @@ def synthesize_evidence(
     analysis_unavailable: bool = False,
     sources: Sequence[str] = (),
     queries: Sequence[str] = (),
+    assess_methodology: bool = True,
 ) -> dict[str, Any]:
-    rows = build_evidence_rows(articles, claim_profile, submitted_population)
+    rows = build_evidence_rows(
+        articles,
+        claim_profile,
+        submitted_population,
+        assess_methodology=assess_methodology,
+    )
     supports = sum(row["weight"] for row in rows if row["relation"] == "SUPPORTS")
     contradicts = sum(row["weight"] for row in rows if row["relation"] == "CONTRADICTS")
     neutral = sum(row["weight"] for row in rows if row["relation"] == "NEUTRAL")
@@ -393,7 +423,12 @@ def synthesize_evidence(
         row for row in rows if row["relation"] in {"SUPPORTS", "CONTRADICTS"} and row["weight"] > 0
     ]
     direct_weight = supports + contradicts
-    certainty, certainty_reasons = _certainty(direct_rows, supports, contradicts)
+    if assess_methodology:
+        certainty, certainty_reasons = _certainty(direct_rows, supports, contradicts)
+    else:
+        certainty, certainty_reasons = "NOT_ASSESSED", [
+            "A aplicação não atribui qualidade metodológica ou risco de viés automaticamente."
+        ]
     if analysis_unavailable and not any(row["assessed"] for row in rows):
         code, label = "ANALYSIS_UNAVAILABLE", "Análise indisponível nesta execução"
         explanation = (
@@ -409,17 +444,37 @@ def synthesize_evidence(
     else:
         share = max(supports, contradicts) / direct_weight
         if share >= 0.75 and supports > contradicts:
-            code, label = "WEIGHTED_SUPPORT", "A literatura ponderada sustenta a alegação"
+            code, label = (
+                ("WEIGHTED_SUPPORT", "A literatura ponderada sustenta a alegação")
+                if assess_methodology
+                else ("EVIDENCE_BALANCE_SUPPORT", "Predomínio de trechos compatíveis")
+            )
         elif share >= 0.75:
-            code, label = "WEIGHTED_AGAINST", "A literatura ponderada contradiz a alegação"
+            code, label = (
+                ("WEIGHTED_AGAINST", "A literatura ponderada contradiz a alegação")
+                if assess_methodology
+                else ("EVIDENCE_BALANCE_AGAINST", "Predomínio de trechos divergentes")
+            )
         else:
-            code, label = "WEIGHTED_CONFLICT", "A literatura ponderada está dividida"
+            code, label = (
+                ("WEIGHTED_CONFLICT", "A literatura ponderada está dividida")
+                if assess_methodology
+                else ("EVIDENCE_BALANCE_CONFLICT", "Trechos analisados em direções diferentes")
+            )
         explanation = (
-            f"Peso favorável {supports:.2f} contra {contradicts:.2f} desfavorável, "
-            f"somando {len(direct_rows)} estudo(s) com comparação direta ou parcial. "
-            "Cada estudo pesa conforme desenho, comparabilidade com a alegação, risco "
-            "de viés, acesso ao texto e situação editorial; estudos da mesma população "
-            "dividem um único peso."
+            (
+                f"Peso favorável {supports:.2f} contra {contradicts:.2f} desfavorável, "
+                f"somando {len(direct_rows)} estudo(s) com comparação direta ou parcial. "
+                "Cada estudo pesa conforme desenho, comparabilidade com a alegação, risco "
+                "de viés, acesso ao texto e situação editorial; estudos da mesma população "
+                "dividem um único peso."
+            )
+            if assess_methodology
+            else (
+                f"Entre os artigos com trecho citável, {int(supports)} foram compatíveis "
+                f"e {int(contradicts)} divergentes. Esta contagem não avalia qualidade "
+                "metodológica nem transforma quantidade de artigos em prova científica."
+            )
         )
     same_population = [row for row in rows if row.get("same_population_as_submitted")]
     if same_population:
@@ -474,7 +529,7 @@ def synthesize_evidence(
             "code": code,
             "label": label,
             "certainty": certainty,
-            "certainty_label": CERTAINTY_LABELS[certainty],
+            "certainty_label": CERTAINTY_LABELS[certainty] if assess_methodology else None,
             "certainty_reasons": certainty_reasons,
             "explanation": explanation,
         },
@@ -491,5 +546,7 @@ def synthesize_evidence(
             "Peso = desenho × comparabilidade PICO × risco de viés × acesso ao texto × "
             "situação editorial. Não é votação: um ensaio direto de baixo risco vale "
             "mais que vários estudos indiretos."
+            if assess_methodology
+            else "Balanço descritivo de trechos citáveis; qualidade metodológica não avaliada automaticamente."
         ),
     }

@@ -43,6 +43,20 @@ _STUDY_ROW_TEXT_LIMITS = {
     "cohort_or_dataset": 200,
 }
 
+_FACTUAL_STUDY_ROW_FIELDS = (
+    "title_pt",
+    "design_detail",
+    "population",
+    "sample_size",
+    "intervention_or_exposure",
+    "comparator",
+    "outcome",
+    "effect_estimate",
+    "finding_pt",
+    "quote_pt",
+    "cohort_or_dataset",
+)
+
 
 def _study_row_schema() -> dict[str, Any]:
     text = {"type": "STRING"}
@@ -70,6 +84,17 @@ def _study_row_schema() -> dict[str, Any]:
     return {"type": "OBJECT", "properties": properties, "required": list(properties)}
 
 
+def _factual_study_row_schema() -> dict[str, Any]:
+    """Campos descritivos; não pede comparabilidade nem risco de viés ao modelo."""
+
+    text = {"type": "STRING"}
+    properties: dict[str, Any] = {
+        name: text for name in _FACTUAL_STUDY_ROW_FIELDS
+    }
+    properties["registration_ids"] = {"type": "ARRAY", "items": text}
+    return {"type": "OBJECT", "properties": properties, "required": list(properties)}
+
+
 _STUDY_ROW_PROMPT = (
     "Escreva rationale em português.\n\n"
     "Para cada documento preencha também study_row, uma linha padronizada de "
@@ -91,6 +116,19 @@ _STUDY_ROW_PROMPT = (
     "cohort_or_dataset nomeia coorte ou base de dados reutilizada, se houver."
 )
 
+_FACTUAL_STUDY_ROW_PROMPT = (
+    "Escreva rationale em português. Para cada documento preencha study_row "
+    "usando exclusivamente informações explícitas nos trechos. title_pt traduz o "
+    "título; design_detail copia como os autores descrevem o desenho; population, "
+    "sample_size, intervention_or_exposure, comparator e outcome copiam trechos "
+    "literais no idioma original; "
+    "effect_estimate copia a medida de efeito; finding_pt resume o achado; quote_pt "
+    "traduz evidence_quote; registration_ids lista registros citados; "
+    "cohort_or_dataset copia o nome da coorte ou base. Use string vazia quando a "
+    "informação não estiver presente. Não avalie qualidade metodológica, risco de "
+    "viés, robustez, comparabilidade PICO ou validade das conclusões."
+)
+
 
 def _clean_text(value: Any, limit: int = 500) -> str:
     return " ".join(str(value or "").split())[:limit]
@@ -101,13 +139,27 @@ def _enum(value: Any, allowed: Sequence[str], default: str) -> str:
     return normalized if normalized in allowed else default
 
 
-def _parse_study_row(raw: Any) -> dict[str, Any] | None:
+def _parse_study_row(
+    raw: Any, *, assess_methodology: bool = True
+) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
+    fields = (
+        tuple(_STUDY_ROW_TEXT_LIMITS)
+        if assess_methodology
+        else _FACTUAL_STUDY_ROW_FIELDS
+    )
     row: dict[str, Any] = {
-        name: _clean_text(raw.get(name), limit)
-        for name, limit in _STUDY_ROW_TEXT_LIMITS.items()
+        name: _clean_text(raw.get(name), _STUDY_ROW_TEXT_LIMITS[name])
+        for name in fields
     }
+    if not assess_methodology:
+        row["registration_ids"] = [
+            _clean_text(item, 60)
+            for item in (raw.get("registration_ids") or ())[:5]
+            if _clean_text(item)
+        ]
+        return row
     row["comparability"] = _enum(raw.get("comparability"), _COMPARABILITY, "INDIRECT")
     row["rob_tool"] = _enum(raw.get("rob_tool"), _ROB_TOOLS, "NOT_APPLICABLE")
     row["rob_overall"] = _enum(raw.get("rob_overall"), _ROB_JUDGMENTS, "UNCLEAR")
@@ -213,6 +265,7 @@ class GeminiEvidenceAnalyzer:
         post_json: JsonPoster | None = None,
         ssl_context: ssl.SSLContext | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        assess_methodology: bool = True,
     ) -> None:
         if not api_key.strip():
             raise ValueError("A chave Gemini não pode estar vazia.")
@@ -227,6 +280,7 @@ class GeminiEvidenceAnalyzer:
         self.timeout = timeout
         self.max_attempts = max_attempts
         self.retry_backoff = retry_backoff
+        self.assess_methodology = assess_methodology
         self._sleep = sleep
         self._ssl_context = ssl_context or default_ssl_context()
         self._post_json = post_json or self._request_json
@@ -293,9 +347,8 @@ class GeminiEvidenceAnalyzer:
             raise GeminiAnalysisError("O Gemini retornou uma resposta inesperada.")
         return result
 
-    @staticmethod
-    def _schema() -> dict[str, Any]:
-        return {
+    def _schema(self) -> dict[str, Any]:
+        schema = {
             "type": "OBJECT",
             "properties": {
                 "assessments": {
@@ -320,7 +373,11 @@ class GeminiEvidenceAnalyzer:
                                 "type": "STRING",
                                 "enum": sorted(_STUDY_DESIGNS),
                             },
-                            "study_row": _study_row_schema(),
+                            "study_row": (
+                                _study_row_schema()
+                                if self.assess_methodology
+                                else _factual_study_row_schema()
+                            ),
                         },
                         "required": [
                             "pmid",
@@ -337,9 +394,14 @@ class GeminiEvidenceAnalyzer:
             },
             "required": ["assessments"],
         }
+        if not self.assess_methodology:
+            assessment = schema["properties"]["assessments"]["items"]
+            assessment["properties"].pop("study_design")
+            assessment["required"].remove("study_design")
+        return schema
 
-    @staticmethod
     def _prompt(
+        self,
         claim: str,
         documents: Sequence[EvidenceDocument],
         claim_profile: Mapping[str, Any] | None = None,
@@ -374,7 +436,12 @@ class GeminiEvidenceAnalyzer:
             "deve identificar exatamente esse trecho; use strings vazias se não houver "
             "evidência. Priorize Results/Resultados e Conclusion/Conclusão sobre "
             "Introdução. Não conclua que a alegação é verdadeira ou "
-            "falsa. " + _STUDY_ROW_PROMPT
+            "falsa. "
+            + (
+                _STUDY_ROW_PROMPT
+                if self.assess_methodology
+                else _FACTUAL_STUDY_ROW_PROMPT
+            )
             + (
                 "\n\nPICO DA ALEGAÇÃO JSON:\n"
                 + json.dumps(
@@ -459,7 +526,7 @@ class GeminiEvidenceAnalyzer:
             design = str(raw.get("study_design") or "UNKNOWN").strip().upper()
             if relation not in _RELATIONS:
                 relation = "UNCERTAIN"
-            if design not in _STUDY_DESIGNS:
+            if design not in _STUDY_DESIGNS or not self.assess_methodology:
                 design = "UNKNOWN"
             try:
                 confidence = min(1.0, max(0.0, float(raw.get("confidence", 0))))
@@ -487,6 +554,39 @@ class GeminiEvidenceAnalyzer:
                     "no trecho indicado; a avaliação foi invalidada."
                 )
                 quote = ""
+            study_row = _parse_study_row(
+                raw.get("study_row"), assess_methodology=self.assess_methodology
+            )
+            if study_row is not None and not self.assess_methodology:
+                field_sources = {}
+                literal_fields = (
+                    "design_detail", "population", "sample_size",
+                    "intervention_or_exposure", "comparator", "outcome",
+                    "effect_estimate", "cohort_or_dataset",
+                )
+                for field in literal_fields:
+                    value = study_row.get(field) or ""
+                    origin = next(
+                        (item for item in available_passages.values()
+                         if value and value in " ".join(item.text.split())),
+                        None,
+                    )
+                    if origin is None:
+                        study_row[field] = ""
+                    else:
+                        field_sources[field] = {
+                            "text": value, "passage_id": origin.passage_id,
+                            "section": origin.section, "page": origin.page_number,
+                            "source_url": origin.source_url,
+                        }
+                study_row["registration_ids"] = [
+                    value for value in study_row["registration_ids"]
+                    if any(value in item.text for item in available_passages.values())
+                ]
+                study_row["field_sources"] = field_sources
+                if not quote:
+                    study_row["finding_pt"] = ""
+                    study_row["quote_pt"] = ""
             results[pmid] = GeminiEvidenceAssessment(
                 pmid=pmid,
                 relation=relation,
@@ -500,6 +600,6 @@ class GeminiEvidenceAnalyzer:
                 evidence_page=passage.page_number if passage else None,
                 content_scope=passage.content_scope if passage else "UNKNOWN",
                 source_url=passage.source_url if passage else by_pmid[pmid].source_url,
-                study_row=_parse_study_row(raw.get("study_row")),
+                study_row=study_row,
             )
         return tuple(results[item.pmid] for item in documents if item.pmid in results)
