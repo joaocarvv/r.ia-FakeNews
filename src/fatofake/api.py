@@ -10,7 +10,9 @@ from threading import Lock
 from typing import Any, Callable, Mapping, Protocol
 from uuid import uuid4
 
-from flask import Flask, jsonify, request, url_for
+from pathlib import Path
+
+from flask import Flask, Response, jsonify, request, url_for
 
 from .analysis_service import AnalysisServiceError, MultiArticleAnalysis
 from .article_ingestion import (
@@ -509,6 +511,60 @@ def _error_response(code: str, message: str, status_code: int):
     return jsonify({"error": {"code": code, "message": message}}), status_code
 
 
+SWAGGER_UI_HTML = r"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fato ou Fake? — Documentação Swagger</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔬</text></svg>" />
+  <style>
+    body { margin: 0; background: #fafaf8; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .topbar { display: none; }
+    .custom-nav {
+      background: #145a45; color: white; padding: 14px 28px; display: flex;
+      justify-content: space-between; align-items: center; font-size: 0.95rem;
+    }
+    .custom-nav a { color: #f6f3eb; text-decoration: none; font-weight: 600; margin-left: 18px; }
+    .custom-nav a:hover { text-decoration: underline; }
+    .swagger-ui .info .title { color: #145a45; font-family: Georgia, serif; }
+    .swagger-ui .opblock.opblock-post { background: rgba(20, 90, 69, .04); border-color: #145a45; }
+    .swagger-ui .opblock.opblock-post .opblock-summary-method { background: #145a45; }
+    .swagger-ui .opblock.opblock-get { background: rgba(30, 90, 150, .04); border-color: #1e5a96; }
+    .swagger-ui .opblock.opblock-get .opblock-summary-method { background: #1e5a96; }
+  </style>
+</head>
+<body>
+  <div class="custom-nav">
+    <div><strong>🔬 Fato ou Fake?</strong> — Documentação Interativa da API (Swagger / OpenAPI 3.0)</div>
+    <div>
+      <a href="/">← Interface Web</a>
+      <a href="/openapi.yaml" target="_blank" download>Baixar openapi.yaml</a>
+    </div>
+  </div>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" charset="UTF-8"></script>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js" charset="UTF-8"></script>
+  <script>
+    window.onload = function() {
+      SwaggerUIBundle({
+        url: "/openapi.yaml",
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        layout: "BaseLayout"
+      });
+    };
+  </script>
+</body>
+</html>
+"""
+
+
 def create_app(
     job_service: AnalysisJobService,
     *,
@@ -519,6 +575,18 @@ def create_app(
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024
     register_web_ui(app, mode_label=mode_label)
+
+    @app.get("/openapi.yaml")
+    def openapi_spec():
+        spec_path = Path(__file__).resolve().parents[2] / "openapi.yaml"
+        if not spec_path.exists():
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Arquivo openapi.yaml não encontrado."}}), 404
+        return Response(spec_path.read_text(encoding="utf-8"), mimetype="text/yaml; charset=utf-8")
+
+    @app.get("/docs")
+    @app.get("/swagger")
+    def swagger_ui():
+        return Response(SWAGGER_UI_HTML, mimetype="text/html; charset=utf-8")
 
     @app.get("/api/v1/health")
     def health():

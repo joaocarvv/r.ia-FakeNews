@@ -1,6 +1,4 @@
-# docker compose up        → sobe a API Web em http://localhost:5001 e o JupyterLab em http://localhost:8888
-# docker compose up app    → sobe apenas a API / Interface Web (localhost:5001)
-# docker compose up jupyter → sobe apenas o JupyterLab (localhost:8888)
+# docker compose up        → sobe a API Web (localhost:5001) e o JupyterLab (localhost:8888) em um único container
 # docker compose run app python -m unittest discover tests/  → roda os testes
 
 services:
@@ -10,6 +8,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "${HOST_PORT:-5001}:5000"
+      - "8888:8888"
     env_file:
       - .env
     volumes:
@@ -19,36 +18,13 @@ services:
       - ./tests:/app/tests
       - ./data:/app/data
       - ./run_acceptance_app.py:/app/run_acceptance_app.py
+      - ./openapi.yaml:/app/openapi.yaml
+      - ./start.sh:/app/start.sh
       # Persiste modelos do HuggingFace entre restarts
       - hf_cache:/root/.cache/huggingface
-    command: ["python", "run_acceptance_app.py"]
-    restart: unless-stopped
-
-  jupyter:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8888:8888"
-    env_file:
-      - .env
-    volumes:
-      - ./src:/app/src
-      - ./notebooks:/app/notebooks
-      - ./tests:/app/tests
-      - ./data:/app/data
-      - ./run_acceptance_app.py:/app/run_acceptance_app.py
-      - hf_cache:/root/.cache/huggingface
-    command: ["jupyter", "lab",
-              "--ip=0.0.0.0",
-              "--port=8888",
-              "--no-browser",
-              "--allow-root",
-              "--ServerApp.token=''",
-              "--ServerApp.password=''",
-              "--notebook-dir=/app/notebooks"]
     restart: unless-stopped
 
 volumes:
   hf_cache:
+
 

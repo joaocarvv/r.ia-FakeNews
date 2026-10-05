@@ -38,7 +38,10 @@ COPY src/ ./src/
 COPY notebooks/ ./notebooks/
 COPY data/ ./data/
 COPY run_acceptance_app.py ./
+COPY openapi.yaml ./
+COPY start.sh ./
 COPY .env.example ./
+RUN chmod +x start.sh
 
 # Torna o pacote fatofake importável
 ENV PYTHONPATH="/app/src:${PYTHONPATH}"
@@ -48,4 +51,4 @@ ENV PYTHONPATH="/app/src:${PYTHONPATH}"
 # 8888: JupyterLab
 EXPOSE 5000 8888
 
-CMD ["python", "run_acceptance_app.py"]
+CMD ["./start.sh"]

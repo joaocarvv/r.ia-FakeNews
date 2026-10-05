@@ -8,6 +8,9 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 
 ## Arquivos principais
 
+- `run_acceptance_app.py`: inicializador do protótipo local (API HTTP e Interface Web).
+- `openapi.yaml`: especificação Swagger/OpenAPI 3.0 de todas as rotas da API.
+- `docker-compose.yml` e `Dockerfile`: ambiente conteinerizado completo (API + Swagger + JupyterLab).
 - `fato_ou_fake_poc.ipynb`: notebook completo e salvo com uma execução de exemplo.
 - `notebooks/17_validacao_orquestracao_multiartigo.ipynb`: validação do serviço que parte da alegação, processa múltiplos artigos e gera o relatório final.
 - `notebooks/18_validacao_api_http.ipynb`: validação reproduzível do contrato HTTP assíncrono para iniciar e consultar análises.
@@ -15,6 +18,7 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 - `notebooks/20_validacao_pesquisa_adversarial.ipynb`: validação controlada do pesquisador, crítico e árbitro determinístico com checagem de proveniência.
 - `notebooks/21_validacao_fontes_cientificas.ipynb`: auditoria ao vivo de acesso e papel das fontes científicas abertas, editoriais e manuais consideradas pelo grupo.
 - `notebooks/22_validacao_busca_federada.ipynb`: validação da normalização, deduplicação, proveniência e ranking federado entre PubMed, OpenAlex e SciELO via OpenAlex.
+- `notebooks/23_validacao_ingestao_liteparse.ipynb`: validação de ingestão e parsing local de PDFs e referências de artigos.
 - `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
 - `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
 - `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.
@@ -24,68 +28,115 @@ A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou fa
 - `requirements.txt`: dependências principais.
 - `requirements-live.txt`: dependências principais mais Crawl4AI.
 
-## Pré-requisitos
+---
 
-- Python 3.11.
-- Git.
-- Recomendado: [uv](https://docs.astral.sh/uv/getting-started/installation/) para criar e gerenciar o ambiente Python.
-- Uma chave da API Gemini para usar a análise e a síntese por LLM.
+## Como rodar o projeto com Docker (Método Recomendado)
 
-O notebook também funciona sem Gemini: nesse caso, usa um modelo NLI local e uma síntese extrativa. As fontes continuam sendo reais; o projeto não substitui falhas de API por dados simulados.
+O Docker automatiza a instalação de todas as dependências complexas (Python 3.11, PyTorch CPU, Transformers, JupyterLab, Flask, etc.) e garante que o projeto rode de forma idêntica em qualquer sistema operacional (Windows, macOS ou Linux), sem problemas de compatibilidade.
 
-## 1. Clonar e acessar a branch
-
-```powershell
-git clone https://github.com/joaocarvv/r.ia-FakeNews.git
-cd r.ia-FakeNews
-git switch fatofake
-```
-
-## Alternativa: rodar com Docker
-
-Se preferir não instalar Python nem gerenciar dependências manualmente, use Docker.
-Essa opção substitui os passos 2 e 6 e garante o mesmo ambiente em qualquer máquina.
-
-**Pré-requisitos:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado e em execução.
-
-1. Copie o arquivo de variáveis de ambiente e preencha suas chaves (veja as seções 3, 4 e 5):
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Construa a imagem e suba os serviços:
-
-   ```bash
-   # Para subir a API e Interface Web (porta 5001):
-   docker compose up --build app
-
-   # Ou para subir ambos (API na 5001 e JupyterLab na 8888):
-   docker compose up --build
-   ```
-
-3. Acesse no navegador:
-   - **Interface Web e API**: [http://localhost:5001](http://localhost:5001)
-   - **JupyterLab**: [http://localhost:8888](http://localhost:8888)
-
-Para rodar os testes dentro do container:
-
-```bash
-docker compose run app python -m unittest discover tests/
-```
-
-Para parar os containers:
-
-```bash
-docker compose down
-```
-
-> Na primeira execução o download do PyTorch e dos modelos pode levar alguns minutos.
-> O cache dos modelos do HuggingFace é persistido entre restarts.
-
-Se não quiser usar Docker, siga os passos manuais a partir da seção 2.
+### Pré-requisitos
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado e em execução.
 
 ---
+
+### Passo 1: Clonar o repositório e entrar na pasta
+
+```bash
+git clone https://github.com/joaocarvv/r.ia-FakeNews.git
+cd r.ia-FakeNews
+```
+
+---
+
+### Passo 2: Configurar o arquivo `.env`
+
+Copie o arquivo de exemplo para criar o seu `.env`:
+
+No Linux ou macOS:
+```bash
+cp .env.example .env
+```
+
+No Windows (PowerShell):
+```powershell
+Copy-Item .env.example .env
+```
+
+Abra o arquivo `.env` recém-criado em um editor e preencha a chave da Gemini API:
+```dotenv
+GEMINI_API_KEY=sua_chave_aqui
+```
+
+> **Como obter a chave Gemini (gratuita):**
+> 1. Acesse o [Google AI Studio](https://aistudio.google.com/app/apikey).
+> 2. Faça login com sua conta Google.
+> 3. Clique em **Create API key** e copie a chave gerada.
+>
+> *(A aplicação também funciona sem a chave Gemini; nesse caso, ela usa modelos NLI locais com capacidades mais restritas).*
+
+---
+
+### Passo 3: Iniciar o container
+
+Execute o comando abaixo no terminal da raiz do projeto:
+
+```bash
+docker compose up -d --build
+```
+
+O Docker construirá a imagem e iniciará **um único container** que disponibiliza todos os serviços simultaneamente.
+
+> **Nota:** Na primeira vez, o build pode levar alguns minutos para baixar e instalar as dependências de Machine Learning (PyTorch, transformers, sentence-transformers). As execuções seguintes utilizam cache local e sobem em poucos segundos.
+
+---
+
+### Passo 4: O que está disponível e onde acessar
+
+Assim que o container subir, acesse pelo navegador:
+
+| Serviço | URL de Acesso | O que é / Como usar |
+|---|---|---|
+| **Interface Web** | [http://localhost:5001](http://localhost:5001) | Interface interativa para testar alegações em saúde ou submeter links/PDFs de artigos para análise científica baseada em evidências. |
+| **Documentação Swagger (OpenAPI)** | [http://localhost:5001/docs](http://localhost:5001/docs) | Painel visual interativo com todas as rotas da API, esquemas JSON, exemplos e botão **"Try it out"** para testar as requisições. *(Disponível também em `/swagger` e o arquivo bruto em `/openapi.yaml`)*. |
+| **JupyterLab** | [http://localhost:8888](http://localhost:8888) | Ambiente Jupyter completo para abrir e executar qualquer um dos 23 notebooks de validação científica da pasta `notebooks/`. |
+
+*(Nota técnica: A porta externa `5001` é utilizada para evitar conflito com o serviço AirPlay Receiver nativo do macOS, que reserva a porta `5000` por padrão).*
+
+---
+
+### Comandos úteis do Docker
+
+- **Acompanhar os logs em tempo real:**
+  ```bash
+  docker compose logs -f app
+  ```
+
+- **Executar a suíte de testes unitários dentro do container:**
+  ```bash
+  docker compose run app python -m unittest discover tests/
+  ```
+
+- **Parar o container:**
+  ```bash
+  docker compose down
+  ```
+
+- **Reiniciar o container:**
+  ```bash
+  docker compose restart
+  ```
+
+> **Edição ao vivo:** As pastas `src/`, `notebooks/`, `data/`, `tests/` e o arquivo `openapi.yaml` estão montados como volumes. Qualquer alteração que você fizer no código ou nos notebooks reflete no container imediatamente, **sem necessidade de reconstruir a imagem**.
+
+---
+
+## Método Alternativo: Instalação Manual (Sem Docker)
+
+Se preferir não usar Docker e configurar o ambiente Python localmente na máquina:
+
+### Pré-requisitos locais
+- Python 3.11 instalado.
+- Recomendado: [uv](https://docs.astral.sh/uv/getting-started/installation/) para gerenciar o ambiente virtual.
 
 ## 2. Criar o ambiente Python
 

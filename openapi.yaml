@@ -1,0 +1,512 @@
+openapi: 3.0.3
+info:
+  title: Fato ou Fake? — API de Verificação Científica
+  version: 1.0.0
+  description: |
+    API HTTP assíncrona para iniciar e consultar análises de alegações em saúde
+    baseadas em evidências científicas reais (PubMed, PMC, OpenAlex, SciELO, Crossref e Gemini).
+
+    A aplicação cruza alegações ou artigos submetidos com a literatura biomédica,
+    classifica as evidências encontradas e gera um relatório explicável e auditável
+    com graus de confiança e proveniência transparente.
+
+    ### Fluxo de Uso
+    1. Submeta uma alegação (`POST /api/v1/analyses`) ou um artigo em PDF/link (`POST /api/v1/article-analyses`).
+    2. Receba o identificador do trabalho (`analysis_id`) e a URL de status (`status_url`).
+    3. Consulte periodicamente (`GET /api/v1/analyses/{analysis_id}`) até o status se tornar `SUCCEEDED` ou `FAILED`.
+servers:
+  - url: http://localhost:5001
+    description: Servidor Docker (padrão local com Compose)
+  - url: http://localhost:5000
+    description: Execução direta no host (run_acceptance_app.py)
+
+tags:
+  - name: Saúde
+    description: Verificação de conectividade e integridade do serviço.
+  - name: Análises
+    description: Início e consulta assíncrona de análises científicas.
+
+paths:
+  /api/v1/health:
+    get:
+      tags:
+        - Saúde
+      summary: Health check da API
+      description: Retorna o status operacional da aplicação.
+      operationId: getHealth
+      responses:
+        "200":
+          description: API operacional e pronta para receber requisições.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: "ok"
+
+  /api/v1/analyses:
+    post:
+      tags:
+        - Análises
+      summary: Inicia análise a partir de uma alegação textual
+      description: |
+        Enfileira uma análise assíncrona para verificar uma alegação contra
+        a literatura médica e artigos científicos reais.
+      operationId: createAnalysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalysisSubmission"
+            examples:
+              alegacao_simples:
+                summary: Alegação sobre café e saúde
+                value:
+                  claim: "Consumo moderado de café reduz o risco de câncer de próstata"
+              alegacao_com_referencia:
+                summary: Alegação associada a um DOI
+                value:
+                  claim: "Adoçantes artificiais aumentam o risco cardiovascular"
+                  article_reference: "10.1136/bmj-2022-071235"
+      responses:
+        "202":
+          description: Trabalho de análise aceito e enfileirado com sucesso.
+          headers:
+            Location:
+              description: URL relativa para consultar o status do trabalho.
+              schema:
+                type: string
+                example: "/api/v1/analyses/550e8400-e29b-41d4-a716-446655440000"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisJobAccepted"
+        "400":
+          description: JSON inválido ou campos desconhecidos no payload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Tipo de mídia não suportado (o corpo deve ser application/json).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Erro de validação dos dados de entrada (ex. alegação em branco).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/article-analyses:
+    post:
+      tags:
+        - Análises
+      summary: Inicia análise a partir de um artigo (link, DOI ou arquivo PDF/imagem)
+      description: |
+        Extrai o conteúdo do artigo via DOI, link do PubMed ou parsing local de PDF
+        (utilizando LiteParse), identifica a alegação principal e busca evidências
+        independentes na literatura.
+      operationId: createArticleAnalysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArticleSubmission"
+            examples:
+              por_referencia:
+                summary: Artigo indicado por URL do PubMed
+                value:
+                  article_reference: "https://pubmed.ncbi.nlm.nih.gov/34567890/"
+              por_arquivo:
+                summary: Artigo enviado como arquivo PDF (Base64)
+                value:
+                  article_file:
+                    filename: "estudo_clinico.pdf"
+                    content_base64: "JVBERi0xLjQKJcTl8uXr...=="
+      responses:
+        "202":
+          description: Trabalho de análise do artigo aceito e enfileirado.
+          headers:
+            Location:
+              description: URL para consulta do status do trabalho.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisJobAccepted"
+        "400":
+          description: JSON inválido ou campos desconhecidos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Arquivo excede o tamanho máximo suportado (15 MB).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: O cabeçalho Content-Type deve ser application/json.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Dados do artigo ausentes ou inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Serviço de análise de artigos indisponível (ex. falta de chave Gemini para extração).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/analyses/{analysis_id}:
+    get:
+      tags:
+        - Análises
+      summary: Consulta o status e resultado de uma análise
+      description: |
+        Retorna o progresso e estado do trabalho de análise. Quando o status atinge
+        `SUCCEEDED`, inclui o objeto `result` detalhado com artigos, síntese de evidências,
+        relatório metodológico e cards de verificação.
+      operationId: getAnalysis
+      parameters:
+        - name: analysis_id
+          in: path
+          required: true
+          description: Identificador UUID único da análise retornada na submissão.
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        "200":
+          description: Estado atual da análise retornado com sucesso.
+          headers:
+            Retry-After:
+              description: Recomendação de espera em segundos caso o job ainda esteja QUEUED ou RUNNING.
+              schema:
+                type: string
+                example: "1"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisJobDetails"
+        "404":
+          description: Análise não encontrada para o identificador fornecido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: "ok"
+
+    AnalysisSubmission:
+      type: object
+      required:
+        - claim
+      properties:
+        claim:
+          type: string
+          description: Alegação em saúde a ser investigada.
+          example: "Tomar café previne o desenvolvimento de câncer"
+        article_reference:
+          type: string
+          nullable: true
+          description: Referência opcional de artigo (DOI, link PubMed) para restringir ou guiar a busca.
+          example: "10.1016/j.jnutbio.2023.109312"
+
+    ArticleSubmission:
+      type: object
+      description: Submissão de artigo científico por referência ou arquivo binário codificado.
+      properties:
+        article_reference:
+          type: string
+          nullable: true
+          description: URL do artigo (PubMed, DOI) ou identificador PMID.
+          example: "https://pubmed.ncbi.nlm.nih.gov/34567890/"
+        article_file:
+          $ref: "#/components/schemas/ArticleFilePayload"
+
+    ArticleFilePayload:
+      type: object
+      nullable: true
+      required:
+        - filename
+        - content_base64
+      properties:
+        filename:
+          type: string
+          description: Nome do arquivo original (PDF ou imagem).
+          example: "estudo_clinico.pdf"
+        content_base64:
+          type: string
+          description: Conteúdo do arquivo codificado em Base64.
+
+    AnalysisJobAccepted:
+      type: object
+      required:
+        - analysis_id
+        - status
+        - progress
+        - status_url
+      properties:
+        analysis_id:
+          type: string
+          format: uuid
+          description: Identificador único gerado para acompanhar o processamento.
+          example: "e6f47720-dcf4-4e92-911a-7b3b640cb972"
+        status:
+          $ref: "#/components/schemas/AnalysisJobStatus"
+        progress:
+          type: integer
+          description: Percentual estimado de progresso (0 a 100).
+          example: 0
+        status_url:
+          type: string
+          description: URL relativa para consultar o resultado.
+          example: "/api/v1/analyses/e6f47720-dcf4-4e92-911a-7b3b640cb972"
+
+    AnalysisJobStatus:
+      type: string
+      enum:
+        - QUEUED
+        - RUNNING
+        - SUCCEEDED
+        - FAILED
+      description: |
+        - `QUEUED`: Na fila para execução.
+        - `RUNNING`: Em processamento (busca de artigos, extração e síntese).
+        - `SUCCEEDED`: Concluído com sucesso, resultado disponível no campo `result`.
+        - `FAILED`: Falhou, detalhes do erro no campo `error`.
+      example: "SUCCEEDED"
+
+    AnalysisJobDetails:
+      type: object
+      required:
+        - analysis_id
+        - status
+        - progress
+        - claim
+        - created_at
+        - updated_at
+      properties:
+        analysis_id:
+          type: string
+          format: uuid
+          example: "e6f47720-dcf4-4e92-911a-7b3b640cb972"
+        status:
+          $ref: "#/components/schemas/AnalysisJobStatus"
+        progress:
+          type: integer
+          example: 100
+        claim:
+          type: string
+          example: "Tomar café previne o desenvolvimento de câncer"
+        article_reference:
+          type: string
+          nullable: true
+          example: null
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-09-30T18:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2026-09-30T18:30:15Z"
+        result:
+          $ref: "#/components/schemas/AnalysisResult"
+        error:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    AnalysisResult:
+      type: object
+      description: Resultado estruturado completo da análise científica.
+      properties:
+        query:
+          type: string
+          description: Consulta gerada e executada nas bases científicas.
+          example: "coffee consumption AND neoplasms"
+        articles:
+          type: array
+          description: Lista de artigos recuperados e normalizados.
+          items:
+            $ref: "#/components/schemas/ArticleItem"
+        evidence:
+          $ref: "#/components/schemas/EvidenceSynthesis"
+        report:
+          $ref: "#/components/schemas/EvidenceReport"
+        verification:
+          $ref: "#/components/schemas/VerificationCards"
+
+    ArticleItem:
+      type: object
+      properties:
+        pmid:
+          type: string
+          example: "31234567"
+        title:
+          type: string
+          example: "Coffee consumption and prostate cancer risk: a meta-analysis"
+        authors:
+          type: array
+          items:
+            type: string
+          example: ["Silva, J.", "Santos, M."]
+        journal:
+          type: string
+          example: "BMJ Open"
+        publication_date:
+          type: string
+          example: "2024"
+        doi:
+          type: string
+          nullable: true
+          example: "10.1136/bmjopen-2023-000000"
+        url:
+          type: string
+          example: "https://pubmed.ncbi.nlm.nih.gov/31234567/"
+        access_level:
+          type: string
+          enum: [ABSTRACT_ONLY, OPEN_ACCESS, FULL_TEXT]
+          example: "OPEN_ACCESS"
+        quality:
+          type: object
+          properties:
+            study_design:
+              type: string
+              example: "SYSTEMATIC_REVIEW"
+            level:
+              type: string
+              enum: [HIGH, MODERATE, LOW, CRITICALLY_LOW]
+              example: "HIGH"
+            is_retracted:
+              type: boolean
+              example: false
+
+    EvidenceSynthesis:
+      type: object
+      description: Síntese quantitativa e direcional do conjunto de evidências.
+      properties:
+        direction:
+          type: string
+          enum: [SUPPORT, CONTRADICT, INCONCLUSIVE]
+          example: "SUPPORT"
+        strength:
+          type: string
+          enum: [STRONG, MODERATE, WEAK, INCONCLUSIVE]
+          example: "MODERATE"
+        article_count:
+          type: integer
+          example: 8
+        usable_article_count:
+          type: integer
+          example: 7
+        has_conflict:
+          type: boolean
+          example: false
+        probabilities:
+          type: object
+          properties:
+            support:
+              type: number
+              example: 0.72
+            contradiction:
+              type: number
+              example: 0.12
+            neutral:
+              type: number
+              example: 0.16
+        rationale:
+          type: string
+          example: "A maioria das revisões sistemáticas recuperadas aponta associação protetora estatisticamente relevante."
+
+    EvidenceReport:
+      type: object
+      description: Relatório explicável e conclusivo voltado para leitura humana e auditoria.
+      properties:
+        conclusion:
+          type: string
+          enum:
+            - EVIDENCE_SUPPORTS
+            - EVIDENCE_AGAINST
+            - CONFLICTING_EVIDENCE
+            - INCONCLUSIVE
+            - INSUFFICIENT_EVIDENCE
+          example: "EVIDENCE_SUPPORTS"
+        headline:
+          type: string
+          example: "Evidências científicas apoiam a alegação"
+        summary:
+          type: string
+          example: "Estudos com metodologia robusta apontam redução moderada do risco associada ao consumo diário."
+        limitations:
+          type: array
+          items:
+            type: string
+          example:
+            - "Resultados observacionais sujeitos a viés de autorrelato."
+            - "A maioria dos dados foca em populações adultas ocidentais."
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+                example: "BMJ Open 2024"
+              url:
+                type: string
+                example: "https://pubmed.ncbi.nlm.nih.gov/31234567/"
+              pmid:
+                type: string
+                example: "31234567"
+
+    VerificationCards:
+      type: object
+      description: Blocos visuais e cartões estruturados de auditoria das evidências.
+      additionalProperties: true
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetails"
+
+    ErrorDetails:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Código padronizado do erro.
+          example: "INVALID_INPUT"
+        message:
+          type: string
+          description: Descrição amigável e explicativa do erro.
+          example: "A alegação informada não pode estar em branco."

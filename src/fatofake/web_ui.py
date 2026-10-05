@@ -189,7 +189,7 @@ WEB_UI_HTML = r"""<!doctype html>
       </div>
     </section>
 
-    <footer>Protótipo acadêmico. O sistema avalia compatibilidade com o corpus recuperado, não uma verdade médica absoluta.</footer>
+    <footer>Protótipo acadêmico. O sistema avalia compatibilidade com o corpus recuperado, não uma verdade médica absoluta. · <a href="/docs" style="color: var(--brand); font-weight: 700; text-decoration: underline;">Documentação da API (Swagger)</a></footer>
   </main>
   <script>
     const form = document.getElementById('analysis-form');
