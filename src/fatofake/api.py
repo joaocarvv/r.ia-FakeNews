@@ -27,6 +27,8 @@ from .article_ingestion import (
     validate_article_submission,
 )
 from .gemini_evidence import GeminiAnalysisError
+from .pubmed import PubMedError
+from .topic_search import PubMedTopicSearch
 from .report_export import render_markdown_report
 from .research_plan import SEARCH_DEPTHS
 from .input_validation import AnalysisInput, InputValidationError, validate_analysis_input
@@ -1257,6 +1259,7 @@ def create_app(
     job_service: AnalysisJobService,
     *,
     mode_label: str = "PROTÓTIPO LOCAL — resultados dependem do backend configurado",
+    article_search: PubMedTopicSearch | None = None,
 ) -> Flask:
     """Cria a aplicação sem inicializar modelos ou serviços externos no import."""
 
@@ -1306,6 +1309,22 @@ def create_app(
     @app.get("/api/v1/health")
     def health():
         return jsonify({"status": "ok"})
+
+    @app.post("/api/v1/pubmed-search")
+    def search_pubmed_topics():
+        if article_search is None:
+            return _error_response("SEARCH_UNAVAILABLE", "Busca temática indisponível.", 503)
+        if not request.is_json:
+            return _error_response("UNSUPPORTED_MEDIA_TYPE", "Envie o corpo como application/json.", 415)
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return _error_response("INVALID_JSON", "O JSON enviado é inválido.", 400)
+        try:
+            return jsonify(article_search.search(payload.get("topic"), article_type=payload.get("article_type", "ALL")))
+        except InputValidationError as error:
+            return _error_response("INVALID_INPUT", str(error), 400)
+        except PubMedError:
+            return _error_response("PUBMED_UNAVAILABLE", "Não foi possível consultar o PubMed. Tente novamente em instantes.", 502)
 
     @app.post("/api/v1/analyses")
     def create_analysis():

@@ -50,7 +50,7 @@ WEB_UI_HTML = r"""<!doctype html>
     .panel { border: 1px solid rgba(20, 90, 69, .18); border-radius: 20px; background: rgba(255, 253, 248, .94); box-shadow: var(--shadow); }
     .form-panel { padding: clamp(20px, 4vw, 36px); }
     label { display: block; margin-bottom: 8px; font-weight: 750; }
-    textarea, input {
+    textarea, input, select {
       width: 100%; border: 1px solid #bfc9c1; border-radius: 12px; background: #fff;
       padding: 14px 15px; color: var(--ink); font: inherit; outline: none;
     }
@@ -252,12 +252,34 @@ WEB_UI_HTML = r"""<!doctype html>
       <div class="mode">__MODE_LABEL__</div>
     </header>
 
+    <section class="panel form-panel" aria-labelledby="topic-title" style="margin-bottom:24px">
+      <h2 id="topic-title">Encontre artigos por tema</h2>
+      <p class="hint">Descreva o que quer pesquisar, inclusive em português. A busca organiza os termos e consulta somente o PubMed.</p>
+      <form id="topic-form">
+        <div class="field">
+          <label for="topic-input">Tema ou pergunta de pesquisa</label>
+          <input id="topic-input" minlength="2" maxlength="300" required placeholder="Ex.: exercício físico e diabetes tipo 2">
+        </div>
+        <div class="field">
+          <label for="topic-type">Tipo de artigo</label>
+          <select id="topic-type">
+            <option value="ALL">Todos os tipos</option>
+            <option value="REVIEWS">Revisões sistemáticas e meta-análises</option>
+            <option value="TRIALS">Ensaios randomizados</option>
+          </select>
+        </div>
+        <button id="topic-submit" type="submit">Pesquisar no PubMed</button>
+      </form>
+      <p id="topic-status" class="hint" role="status" aria-live="polite"></p>
+      <div id="topic-results"></div>
+    </section>
+
     <section class="panel form-panel" aria-labelledby="form-title">
       <h2 id="form-title">Qual artigo você quer verificar?</h2>
       <form id="analysis-form">
         <div class="field">
-          <label for="article-reference">Link do PubMed ou DOI indexado no PubMed</label>
-          <input id="article-reference" maxlength="500" placeholder="https://pubmed.ncbi.nlm.nih.gov/... ou 10.xxxx/...">
+          <label for="article-reference">PMID, link do PubMed ou DOI indexado no PubMed</label>
+          <input id="article-reference" maxlength="500" placeholder="PMID, https://pubmed.ncbi.nlm.nih.gov/... ou 10.xxxx/...">
           <p class="hint">A pesquisa externa usa somente PubMed/PMC. Informe um link/DOI ou escolha um arquivo abaixo — não os dois.</p>
         </div>
         <div class="field">
@@ -1343,6 +1365,52 @@ WEB_UI_HTML = r"""<!doctype html>
         await new Promise(resolve => setTimeout(resolve, 1500));
       }
     }
+    document.getElementById('topic-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = document.getElementById('topic-submit');
+      const status = document.getElementById('topic-status');
+      const results = document.getElementById('topic-results');
+      button.disabled = true; clearNode(results);
+      status.textContent = 'Preparando a consulta e pesquisando no PubMed…';
+      try {
+        const response = await fetch('/api/v1/pubmed-search', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({topic: document.getElementById('topic-input').value.trim(), article_type: document.getElementById('topic-type').value})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error?.message || 'Não foi possível pesquisar.');
+        const articles = data.articles || [];
+        const mode = data.mode === 'ASSISTED' ? 'Termos organizados com IA.' : 'Consulta direta ao PubMed, sem expansão por IA.';
+        status.textContent = `${articles.length ? `${articles.length} artigo(s) encontrado(s).` : 'Nenhum artigo encontrado. Tente outros termos ou amplie o tipo de artigo.'} ${mode} ${data.limitation || ''}`;
+        const queries = document.createElement('details');
+        addTextElement(queries, 'summary', 'Ver consultas usadas');
+        (data.query_results || []).forEach(item => addTextElement(queries, 'p', `${item.query} — ${item.status === 'OK' ? `${item.total_matches} resultado(s) no PubMed` : 'consulta indisponível'}`));
+        results.appendChild(queries);
+        articles.forEach(article => {
+          const card = document.createElement('article'); card.className = 'finding';
+          addTextElement(card, 'h3', article.title);
+          addTextElement(card, 'p', [article.journal, article.publication_date, `PMID ${article.pmid}`, ...(article.publication_types || [])].filter(Boolean).join(' · '), 'article-meta');
+          if (article.authors?.length) addTextElement(card, 'p', article.authors.slice(0, 3).join(', '), 'article-meta');
+          previewLink(card, 'Abrir no PubMed', article.url);
+          const choose = document.createElement('button'); choose.type = 'button'; choose.className = 'secondary';
+          choose.textContent = 'Usar este artigo'; choose.style.marginLeft = '12px';
+          choose.addEventListener('click', () => {
+            document.getElementById('article-file').value = '';
+            const reference = document.getElementById('article-reference');
+            reference.value = article.url;
+            document.getElementById('analysis-form').scrollIntoView({behavior: 'smooth', block: 'center'});
+            reference.focus({preventScroll: true});
+            status.textContent = 'Artigo selecionado. Clique em “Verificar artigo” abaixo para iniciar a análise.';
+          });
+          card.appendChild(choose); results.appendChild(card);
+        });
+      } catch (error) {
+        status.textContent = error.message || 'Erro ao consultar o PubMed.';
+      } finally {
+        button.disabled = false;
+      }
+    });
+
     form.addEventListener('submit', async event => {
       event.preventDefault(); submit.disabled = true; errorBox.style.display = 'none';
       activeClaimId = null; activeAnalysisId = null;

@@ -60,6 +60,7 @@ from .federated_search import (
 from .input_validation import InputValidationError, validate_analysis_input
 from .pmc import ArticleContent, ContentRetrievalError, ContentSection, PmcClient
 from .pubmed import PubMedClient, PubMedError
+from .topic_search import PubMedTopicSearch
 from .quality_validation import classify_study_design
 from .retrieval import Bm25Index, RetrievalError
 from .result_presentation import build_user_summary
@@ -1660,7 +1661,22 @@ def create_pubmed_only_app(*, project_root: Path | None = None):
         study_tools=StudyTools(runner, document_parser),
         max_workers=2,
     )
-    app = create_app(service, mode_label=RETRIEVAL_MODE_LABEL)
+    search_gateway = (
+        GeminiEvidenceAnalyzer(
+            os.environ["GEMINI_API_KEY"],
+            model_name=os.getenv("LLM_MODEL", "gemini-flash-lite-latest"),
+            timeout=20,
+            max_attempts=1,
+            assess_methodology=False,
+        )
+        if evidence_analyzer is not None
+        else None
+    )
+    app = create_app(
+        service,
+        mode_label=RETRIEVAL_MODE_LABEL,
+        article_search=PubMedTopicSearch(pubmed_client, search_gateway),
+    )
     app.extensions["fatofake_job_service"] = service
     _start_watch_thread(service)
     return app

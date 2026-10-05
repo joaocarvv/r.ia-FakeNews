@@ -8,6 +8,9 @@ A aplicação não declara que um artigo é verdadeiro, falso ou metodologicamen
 
 ## Escopo desta branch
 
+- Busca por tema em português ou inglês: termos organizados por IA quando disponível,
+  consultas exibidas ao usuário e resultados com opção de selecionar um artigo.
+- Filtros opcionais para revisões sistemáticas/meta-análises e ensaios randomizados.
 - Fonte de descoberta: PubMed.
 - Texto integral automatizado: somente PMC.
 - Fallback: abstract do PubMed, identificado na interface.
@@ -26,6 +29,14 @@ com ground truth não foram implementados nesta redução de escopo.
 O banco padrão desta branch é `data/analysis-jobs-pubmed.sqlite3`, preservando os
 relatórios anteriores em `analysis-jobs.sqlite3`. Uma configuração explícita de
 `JOB_DATABASE_PATH` continua sendo respeitada.
+
+A busca temática usa `POST /api/v1/pubmed-search` com
+`{"topic": "exercício e diabetes", "article_type": "ALL"}`. `article_type` aceita
+`ALL`, `REVIEWS` ou `TRIALS`. A IA só formula consultas; títulos, PMIDs e metadados
+vêm do PubMed. Sem chave ou se a expansão falhar, a consulta original continua
+disponível. São apresentados até dez artigos potencialmente relacionados, sem
+avaliação de qualidade metodológica. Ao selecionar um resultado, o formulário de
+análise é preenchido; a análise só começa após clicar em “Verificar artigo”.
 
 ## Arquivos principais
 
