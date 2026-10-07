@@ -47,13 +47,15 @@ análise é preenchido; a análise só começa após clicar em “Verificar arti
 
 ## Arquivos principais
 
-- `fato_ou_fake_poc.ipynb`: notebook completo e salvo com uma execução de exemplo.
-- `notebooks/17_validacao_orquestracao_multiartigo.ipynb`: validação do serviço que parte da alegação, processa múltiplos artigos e gera o relatório final.
+<!-- Verificar todos os arquivos: Se continuam existindo, se ainda estamos os utilizando etc -->
+
+- `fato_ou_fake_poc.ipynb`: notebook completo e salvo com uma execução de exemplo. <!-- Substituir esse notebook por um novo, visto que este está relacionado com o projeto antigo-->
+- `notebooks/17_validacao_orquestracao_multiartigo.ipynb`: validação do serviço que parte da alegação, processa múltiplos artigos e gera o relatório final. 
 - `notebooks/18_validacao_api_http.ipynb`: validação reproduzível do contrato HTTP assíncrono para iniciar e consultar análises.
 - `notebooks/19_validacao_confiabilidade.ipynb`: benchmark inicial das regras de abstenção e exclusão de artigos retratados.
 - `notebooks/20_validacao_pesquisa_adversarial.ipynb`: validação controlada do pesquisador, crítico e árbitro determinístico com checagem de proveniência.
 - `notebooks/21_validacao_fontes_cientificas.ipynb`: auditoria ao vivo de acesso e papel das fontes científicas abertas, editoriais e manuais consideradas pelo grupo.
-- `notebooks/22_validacao_busca_federada.ipynb`: validação da normalização, deduplicação, proveniência e ranking federado entre PubMed, OpenAlex e SciELO via OpenAlex.
+- `notebooks/22_validacao_busca_federada.ipynb`: validação da normalização, deduplicação, proveniência e ranking federado entre PubMed, OpenAlex e SciELO via OpenAlex. <!-- Atualizar esse notebook, visto que está incluindo OpenAlex e SciELO -->
 - `notebooks/23_validacao_ingestao_liteparse.ipynb`: validação da leitura local de PDFs e da repetição segura de falhas temporárias do Gemini.
 - `notebooks/24_validacao_verificacao_artigo.ipynb`: validação da busca relacionada, compatibilidade textual e índice de cobertura da verificação.
 - `notebooks/25_validacao_texto_completo_rastreavel.ipynb`: validação da prioridade de texto completo, seções, tabelas e proveniência por página.
@@ -70,6 +72,8 @@ análise é preenchido; a análise só começa após clicar em “Verificar arti
 - `.env.example`: modelo das variáveis de ambiente.
 - `requirements.txt`: dependências principais.
 - `requirements-live.txt`: dependências principais mais Crawl4AI.
+
+<!-- Verificar todos os arquivos: Se continuam existindo, se ainda estamos os utilizando etc -->
 
 ## Pré-requisitos
 
@@ -140,6 +144,8 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 
 ### Variáveis disponíveis
 
+<!-- Verificar todas as variáveis: Se continuam existindo, se ainda estamos os utilizando etc -->
+
 | Variável | Obrigatória | Valor padrão | Finalidade |
 |---|---:|---|---|
 | `GEMINI_API_KEY` | Recomendada | vazio | Autentica a análise, classificação e síntese com Gemini. Sem ela, o notebook usa o fallback local. |
@@ -158,6 +164,8 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 | `LLM_RETRY_BACKOFF` | Não | `1` | Espera exponencial inicial, em segundos, entre tentativas da Gemini. |
 | `DOCUMENT_MAX_PAGES` | Não | `100` | Limite de páginas processadas localmente pelo LiteParse. |
 | `DOCUMENT_PARSE_TIMEOUT` | Não | `45` | Limite, em segundos, para interpretar um documento local. |
+
+<!-- Verificar todas as variáveis: Se continuam existindo, se ainda estamos os utilizando etc -->
 
 Exemplo completo:
 
@@ -191,6 +199,8 @@ A documentação das [E-utilities do NCBI](https://www.ncbi.nlm.nih.gov/books/NB
 
 Pelo Jupyter Lab no Windows:
 
+<!-- Atualizar o notebook abaixo para que seja correspondente ao exemplo -->
+
 ```powershell
 .venv/Scripts/python.exe -m jupyter lab fato_ou_fake_poc.ipynb
 ```
@@ -203,12 +213,16 @@ No Linux ou macOS:
 
 No VS Code:
 
+<!-- Atualizar arquivos -->
+
 1. Abra `fatofake.code-workspace`.
 2. Abra `fato_ou_fake_poc.ipynb`.
 3. Selecione o interpretador `.venv` como kernel.
 4. Use **Restart Kernel and Run All Cells**.
 
 Para executar e salvar todas as saídas pelo terminal:
+
+<!-- Atualizar arquivos -->
 
 ```powershell
 .venv/Scripts/python.exe -m jupyter nbconvert --to notebook --execute --inplace fato_ou_fake_poc.ipynb --ExecutePreprocessor.timeout=300
