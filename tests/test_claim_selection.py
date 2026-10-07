@@ -200,8 +200,8 @@ class ClaimSelectionTests(unittest.TestCase):
         )
         report = client.get(f"/api/v1/analyses/{created['analysis_id']}/report.md")
 
-        _prepared, selected = runner.prepared_calls[0]
-        self.assertEqual(runner.depths, ["DEEP"])
+        selected = tuple(claim for _prepared, claims in runner.prepared_calls for claim in claims)
+        self.assertEqual(runner.depths, ["DEEP", "DEEP"])
         self.assertEqual([claim.edited for claim in selected], [False, True])
         self.assertEqual(report.status_code, 200)
         self.assertEqual(report.mimetype, "text/markdown")

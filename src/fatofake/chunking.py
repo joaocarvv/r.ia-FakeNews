@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from .pmc import ArticleContent, ContentSection
 
 
+CHUNKER_VERSION = "word-window-v1"
+
+
 class ChunkingError(ValueError):
     """Configuração inválida ou conteúdo insuficiente para criar trechos."""
 
@@ -46,6 +49,9 @@ class EvidenceChunk:
     word_end: int
     text: str
     page_number: int | None = None
+    content_scope: str = "UNKNOWN"
+    chunker_version: str = CHUNKER_VERSION
+    parser_version: str = "unknown"
 
 
 def _normalize_text(text: str) -> str:
@@ -87,7 +93,9 @@ def chunk_article_content(
 
     active_config = config or ChunkingConfig()
     source_kind = (
-        "PMC_FULL_TEXT"
+        "USER_PROVIDED_FULL_TEXT"
+        if content.full_text and content.access_level in {"USER_PROVIDED_FULL_TEXT", "LOCAL_PDF_FULL_TEXT"}
+        else "PMC_FULL_TEXT"
         if content.full_text and content.pmcid
         else "OPEN_ACCESS_FULL_TEXT"
         if content.full_text
@@ -132,6 +140,8 @@ def chunk_article_content(
                     word_end=end,
                     text=chunk_text,
                     page_number=page_number,
+                    content_scope=content.access_level,
+                    parser_version=content.parser_version,
                 )
             )
             if end == len(words):

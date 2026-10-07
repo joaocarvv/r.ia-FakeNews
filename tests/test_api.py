@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from concurrent.futures import Future
 from pathlib import Path
@@ -6,7 +7,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from fatofake.api import AnalysisJobService, create_app
+from fatofake.api import (
+    AnalysisJobService,
+    AnalysisJobStatus,
+    SQLiteAnalysisJobStore,
+    create_app,
+)
+from fatofake.input_validation import validate_analysis_input
 
 
 class ImmediateExecutor:
@@ -72,6 +79,30 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"status": "ok"})
 
+    def test_readiness_checks_local_dependencies_and_upload_envelope(self):
+        app, _service = self.app_for(RunnerStub())
+
+        response = app.test_client().get("/api/v1/ready")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["status"], "ok")
+        self.assertEqual(response.get_json()["database"], "ok")
+        self.assertGreaterEqual(app.config["MAX_CONTENT_LENGTH"], 36 * 1024 * 1024)
+
+    def test_sqlite_marks_in_flight_jobs_as_failed_after_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLiteAnalysisJobStore(Path(directory) / "jobs.sqlite3")
+            job = store.create(validate_analysis_input("Alegação válida para reinício."))
+            store.transition(job.analysis_id, status=AnalysisJobStatus.RUNNING, progress=10)
+
+            recovered = store.mark_interrupted_jobs_failed()
+            snapshot = store.get(job.analysis_id)
+
+        self.assertEqual(recovered, 1)
+        self.assertEqual(snapshot.status, AnalysisJobStatus.FAILED)
+        self.assertEqual(snapshot.progress, 100)
+        self.assertEqual(snapshot.error["code"], "APPLICATION_RESTARTED")
+
     def test_serves_the_user_acceptance_page(self):
         app, _service = self.app_for(RunnerStub())
 
@@ -87,7 +118,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Alegações identificadas no artigo", page)
         self.assertIn("Cobertura da busca", page)
         self.assertIn("Compatibilidade das evidências", page)
-        self.assertIn("Transparência metodológica", page)
+        self.assertIn("Dados e fontes", page)
         self.assertNotIn("Índice de cobertura da verificação", page)
         self.assertIn("Ver ficha do artigo enviado", page)
         self.assertIn("O que conseguimos ler", page)

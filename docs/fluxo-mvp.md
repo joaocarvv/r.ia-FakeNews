@@ -12,15 +12,17 @@ disponível; caso contrário, a comparação fica limitada ao abstract do PubMed
 O Gemini continua responsável pela classificação textual e pelos resumos. Isso
 ainda não demonstra relevância clínica nem correção das interpretações.
 
-O desenho dos estudos recuperados vem de `PublicationType`. Campos factuais
-extraídos pelo Gemini na tabela de comparação só são conservados quando aparecem
-literalmente nos trechos enviados ao modelo, com sua proveniência. Essa checagem
-comprova a ocorrência do texto, mas não a interpretação ou adequação metodológica.
+Os tipos de publicação são apresentados como metadados `PublicationType` do PubMed,
+sem afirmar que confirmam o desenho ou a qualidade metodológica. Dados extraídos
+pelo Gemini só são conservados quando aparecem literalmente no texto disponível,
+com sua proveniência. Essa checagem comprova a ocorrência, não a interpretação.
+Campos sem respaldo são omitidos; a cobertura da leitura continua visível.
 
-Não há avaliação automática de risco de viés, GRADE ou nota de qualidade. A síntese
-é um balanço descritivo de trechos, sem ponderação metodológica; artigos com sinal
-de retratação não contribuem para esse balanço. Financiamento, conflitos, amostra
-e protocolos encontrados compõem uma ficha de transparência.
+O MVP não produz triagem de risco de viés, comparabilidade PICO ou certeza estimada.
+`ASSESS_METHODOLOGY` é uma configuração legada ignorada pelo factory, inclusive se
+estiver em `true`. A síntese é um balanço descritivo de trechos. Artigos retratados
+não contribuem para esse balanço. Financiamento e conflitos aparecem somente quando
+há declaração acompanhada de citação localizada no texto.
 
 O factory `create_pubmed_only_app` é usado pelo entrypoint existente
 `create_live_retrieval_app`. Os módulos e notebooks abaixo registram o trabalho
@@ -199,3 +201,64 @@ Leitura + alegação extraída
             ↓
 Relatório + justificativa + fontes
 ```
+
+
+## Biblioteca e comparação com referências escolhidas
+
+A leitura inicial guarda a fonte recuperada na biblioteca e mantém o snapshot preparado.
+Fontes de análises antigas que já possuem snapshot também são incluídas na biblioteca,
+sem refazer consultas ou apagar as notas existentes.
+Depois da primeira investigação, é possível escolher outras alegações, repetir uma
+comparação ou acrescentar alegações próprias. As demais comparações permanecem no
+mesmo trabalho. Cada alegação tem estado próprio (`QUEUED`, `RUNNING`, `SUCCEEDED`
+ou `FAILED`); uma falha não descarta os resultados das outras. O polling leve inclui
+`claim_progress`. Novas rodadas também funcionam após reiniciar a aplicação.
+
+A seleção aceita até 10 alegações por rodada. O campo opcional `comparison` escolhe
+`AUTOMATIC` ou `MANUAL`. No modo manual, informe `article_ids` da biblioteca,
+`references` (PMIDs, links do PubMed ou DOIs) e/ou `files` (arquivos no formato já usado
+em `article_file`), com até 20 documentos no total. As fontes são recuperadas uma vez,
+guardadas e reutilizadas entre as alegações. Não há busca temática nesse modo; o
+relatório registra que o conjunto foi escolhido pelo usuário. Duplicatas são removidas
+e o artigo alvo é rejeitado como referência contra si próprio.
+
+Uma alegação própria usa `claim_id` começando por `user-`, `text` e `source: "USER"`.
+Ela fica no snapshot para futuras rodadas, com `user_supplied: true` e sem citação
+atribuída aos autores.
+
+Endpoints da biblioteca:
+
+- `GET /api/v1/library/articles?q=...`: lista e pesquisa metadados sem enviar o texto inteiro.
+- `POST /api/v1/library/articles`: guarda uma referência/arquivo ou a fonte de `analysis_id`.
+- `GET /api/v1/library/articles/<id>`: abre o documento guardado, com páginas e seções.
+- `GET /api/v1/library/articles/<id>/file`: baixa o arquivo original quando ele foi recebido.
+- `PATCH /api/v1/library/articles/<id>`: atualiza `notes` e `tags`.
+- `POST /api/v1/library/articles/<id>/analyses`: inicia uma leitura usando o texto guardado.
+
+As tabelas `library_articles` e `library_text` (FTS5) compartilham o arquivo SQLite dos
+trabalhos. A biblioteca é local à instalação, sem separação por conta. A busca atual é
+textual; não requer embeddings, FAISS ou download de modelos adicionais. Texto completo
+já guardado não é substituído por uma leitura posterior limitada ao resumo.
+
+## Persistência vetorial opcional
+
+O padrão da web continua BM25: `VECTOR_STORE_BACKEND=memory` e
+`HYBRID_RETRIEVAL_ENABLED=false`. Para ativar a recuperação híbrida persistente,
+use `VECTOR_STORE_BACKEND=qdrant` e `HYBRID_RETRIEVAL_ENABLED=true`. O índice em
+memória permanece disponível com `memory` e a flag híbrida habilitada.
+
+O fluxo preserva os conectores NCBI e a apresentação factual. Qdrant só localiza
+chunks dos documentos escolhidos; não valida alegações, desenho de estudo nem
+confiança metodológica. Modelo, dimensão, revisão, texto, seção, página, fonte,
+escopo e versões do parser/chunker ficam no payload. Novas alegações reutilizam
+os vetores; cada consulta recebe seu embedding. Ambos os rankings são fundidos
+por RRF com posições e contribuições disponíveis nos trechos selecionados.
+
+Por padrão, falhas de configuração, embeddings ou conexão geram erros claros.
+`VECTOR_STORE_FAILURE_MODE=bm25` permite retorno ao BM25, com aviso no resultado
+e logs estruturados. O texto recuperado vai ao Gemini como dados não confiáveis,
+separado da instrução de sistema; IDs/citações inválidos resultam em `UNCERTAIN`.
+A biblioteca continua textual (FTS5), e SQLite guarda os documentos e análises.
+
+Veja [recuperacao-vetorial.md](recuperacao-vetorial.md) para contratos, escopos,
+ativação, avaliação offline e limitações.

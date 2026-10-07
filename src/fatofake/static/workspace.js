@@ -141,7 +141,7 @@ disclose(document.getElementById('crossing-title').closest('section'), 'Consulta
 document.querySelectorAll('#whole-article-report .report-columns').forEach((node, index) => {
   disclose(node, index === 0 ? 'Resultados e limitações declaradas' : 'Tabelas, financiamento e conflitos de interesse');
 });
-disclose(document.getElementById('whole-study'), 'Desenho e características do estudo');
+disclose(document.getElementById('whole-study'), 'Características relatadas no texto');
 
 const guide = document.createElement('dialog');
 guide.className = 'guide-dialog'; guide.setAttribute('aria-labelledby', 'guide-title');

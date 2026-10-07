@@ -3,38 +3,47 @@
 from __future__ import annotations
 
 from concurrent.futures import Executor, ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 import json
+from copy import deepcopy
+from io import BytesIO
 import logging
 from pathlib import Path
 import sqlite3
 from time import perf_counter
 from threading import Lock
-from typing import Any, Callable, Mapping, Protocol
+from typing import Any, Callable, Iterator, Mapping, Protocol
 from uuid import uuid4
 
-from flask import Flask, Response, g, jsonify, request, url_for
+from flask import Flask, Response, g, jsonify, request, send_file, url_for
+from werkzeug.utils import secure_filename
 
 from .analysis_service import AnalysisServiceError, MultiArticleAnalysis
 from .article_ingestion import (
-    validate_article_submission,
     ArticleIngestionError,
+    ArticleFirstAnalysisRunner,
     ArticleSubmission,
     ExtractedClaim,
     PreparedArticle,
     validate_article_submission,
 )
+from .library import ArticleLibrary
+from .document_parsing import DocumentParsingError
+from .article_ingestion import ResolvedArticleDocument
 from .gemini_evidence import GeminiAnalysisError
 from .pubmed import PubMedError
 from .topic_search import PubMedTopicSearch
+from .topic_clustering import TopicClusteringError
 from .report_export import render_markdown_report
 from .research_plan import SEARCH_DEPTHS
 from .input_validation import AnalysisInput, InputValidationError, validate_analysis_input
 from .web_ui import register_web_ui
 from .verification_cards import build_analysis_cards
 from .structured_logging import bind_log_context, log_event, logged_step
+from .structured_sources import StructuredSourceError
 
 
 logger = logging.getLogger(__name__)
@@ -130,11 +139,12 @@ ALLOWED_JOB_TRANSITIONS = {
         AnalysisJobStatus.FAILED,
     },
     AnalysisJobStatus.RESEARCHING: {
+        AnalysisJobStatus.RESEARCHING,
         AnalysisJobStatus.SUCCEEDED,
         AnalysisJobStatus.FAILED,
     },
-    AnalysisJobStatus.SUCCEEDED: set(),
-    AnalysisJobStatus.FAILED: set(),
+    AnalysisJobStatus.SUCCEEDED: {AnalysisJobStatus.RESEARCHING},
+    AnalysisJobStatus.FAILED: {AnalysisJobStatus.RESEARCHING},
 }
 
 
@@ -218,7 +228,10 @@ class InMemoryAnalysisJobStore:
                 raise ValueError(
                     f"Transição inválida: {current.status.value} -> {status.value}."
                 )
-            if progress < current.progress:
+            if progress < current.progress and not (
+                current.status in {AnalysisJobStatus.SUCCEEDED, AnalysisJobStatus.FAILED}
+                and status is AnalysisJobStatus.RESEARCHING
+            ):
                 raise ValueError("O progresso de uma análise não pode diminuir.")
             updated = replace(
                 current,
@@ -257,7 +270,7 @@ class SQLiteAnalysisJobStore:
         self.database_path = Path(database_path)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = Lock()
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute(
                 """
@@ -280,6 +293,57 @@ class SQLiteAnalysisJobStore:
         connection = sqlite3.connect(self.database_path, timeout=30)
         connection.row_factory = sqlite3.Row
         return connection
+
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        """Fecha a conexão após cada operação, inclusive quando há exceção."""
+
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
+    def mark_interrupted_jobs_failed(self) -> int:
+        """Finaliza jobs cujo executor desapareceu em uma reinicialização."""
+
+        interrupted = (
+            AnalysisJobStatus.QUEUED.value,
+            AnalysisJobStatus.RUNNING.value,
+            AnalysisJobStatus.RESEARCHING.value,
+        )
+        error = json.dumps(
+            {
+                "code": "APPLICATION_RESTARTED",
+                "message": (
+                    "A aplicação foi reiniciada durante o processamento. "
+                    "Inicie a análise novamente."
+                ),
+            },
+            ensure_ascii=False,
+        )
+        with self._lock, self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE analysis_jobs
+                SET status = ?, progress = 100, updated_at = ?, error_json = ?
+                WHERE status IN (?, ?, ?)
+                """,
+                (
+                    AnalysisJobStatus.FAILED.value,
+                    self._now(),
+                    error,
+                    *interrupted,
+                ),
+            )
+        return max(0, cursor.rowcount)
+
+    def healthcheck(self) -> None:
+        """Confirma que o banco está acessível e com a tabela esperada."""
+
+        with self._connection() as connection:
+            connection.execute("SELECT 1 FROM analysis_jobs LIMIT 1").fetchone()
 
     @staticmethod
     def _now() -> str:
@@ -315,7 +379,7 @@ class SQLiteAnalysisJobStore:
             created_at=timestamp,
             updated_at=timestamp,
         )
-        with self._lock, self._connect() as connection:
+        with self._lock, self._connection() as connection:
             connection.execute(
                 """
                 INSERT INTO analysis_jobs (
@@ -336,7 +400,7 @@ class SQLiteAnalysisJobStore:
         return job
 
     def get(self, analysis_id: str) -> AnalysisJob:
-        with self._connect() as connection:
+        with self._connection() as connection:
             row = connection.execute(
                 "SELECT * FROM analysis_jobs WHERE analysis_id = ?",
                 (analysis_id,),
@@ -359,7 +423,7 @@ class SQLiteAnalysisJobStore:
     ) -> AnalysisJob:
         if not 0 <= progress <= 100:
             raise ValueError("O progresso deve estar entre 0 e 100.")
-        with self._lock, self._connect() as connection:
+        with self._lock, self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 "SELECT * FROM analysis_jobs WHERE analysis_id = ?",
@@ -374,7 +438,10 @@ class SQLiteAnalysisJobStore:
                 raise ValueError(
                     f"Transição inválida: {current.status.value} -> {status.value}."
                 )
-            if progress < current.progress:
+            if progress < current.progress and not (
+                current.status in {AnalysisJobStatus.SUCCEEDED, AnalysisJobStatus.FAILED}
+                and status is AnalysisJobStatus.RESEARCHING
+            ):
                 raise ValueError("O progresso de uma análise não pode diminuir.")
             updated = replace(
                 current,
@@ -405,7 +472,7 @@ class SQLiteAnalysisJobStore:
         return updated
 
     def update_result(self, analysis_id: str, result: Mapping[str, Any]) -> AnalysisJob:
-        with self._lock, self._connect() as connection:
+        with self._lock, self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 "SELECT * FROM analysis_jobs WHERE analysis_id = ?",
@@ -426,7 +493,7 @@ class SQLiteAnalysisJobStore:
         return updated
 
     def list_ids(self, status: AnalysisJobStatus) -> list[str]:
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "SELECT analysis_id FROM analysis_jobs WHERE status = ? ORDER BY updated_at",
                 (status.value,),
@@ -464,6 +531,8 @@ class AnalysisJobService:
         self.article_runner = article_runner
         self.study_tools = study_tools
         self._result_lock = Lock()
+        self.library = ArticleLibrary(getattr(self.store, "database_path", None))
+        self.library.import_prepared_analyses()
 
     def submit(
         self,
@@ -587,7 +656,7 @@ class AnalysisJobService:
                 progress=100,
             )
 
-    def submit_article(self, submission: ArticleSubmission) -> AnalysisJob:
+    def submit_article(self, submission: ArticleSubmission, *, resolved_document=None) -> AnalysisJob:
         if self.article_runner is None:
             raise AnalysisServiceError("A análise de artigos não está configurada.")
         placeholder = AnalysisInput(
@@ -608,7 +677,7 @@ class AnalysisJobService:
             source_type=submission.reference_type or submission.mime_type,
         )
         try:
-            self.executor.submit(self._run_article, job.analysis_id, submission)
+            self.executor.submit(self._run_article, job.analysis_id, submission, resolved_document)
         except Exception:
             self.store.transition(
                 job.analysis_id,
@@ -621,7 +690,7 @@ class AnalysisJobService:
             )
         return job
 
-    def _run_article(self, analysis_id: str, submission: ArticleSubmission) -> None:
+    def _run_article(self, analysis_id: str, submission: ArticleSubmission, resolved_document=None) -> None:
         with bind_log_context(analysis_id=analysis_id):
             self.store.transition(
                 analysis_id,
@@ -644,8 +713,14 @@ class AnalysisJobService:
                         result = self.article_runner.analyze_article(submission)
                         prepared = None
                     else:
-                        prepared = self.article_runner.prepare_article(submission)
+                        prepared = (
+                            self.article_runner.prepare_article(submission, resolved_document=resolved_document)
+                            if resolved_document is not None else self.article_runner.prepare_article(submission)
+                        )
                         result = self.article_runner.preparation_result(prepared)
+                        if prepared.resolved and prepared.resolved.text.strip():
+                            saved = self.library.save(prepared.submission, prepared.resolved, analysis_id=analysis_id)
+                            result["library_article_id"] = saved["article_id"]
             except (AnalysisServiceError, ArticleIngestionError, GeminiAnalysisError) as error:
                 self.store.transition(
                     analysis_id,
@@ -719,19 +794,28 @@ class AnalysisJobService:
                 progress=100,
             )
 
-    def select_article_claims(
+    def select_article_claims(self, analysis_id, selections, depth="QUICK", comparison=None, source_base_url="http://localhost:5000"):
+        with self._result_lock:
+            return self._select_article_claims(analysis_id, selections, depth, comparison, source_base_url)
+
+    def _select_article_claims(
         self,
         analysis_id: str,
         selections: Any,
         depth: Any = "QUICK",
+        comparison=None,
+        source_base_url="http://localhost:5000",
     ) -> AnalysisJob:
         if self.article_runner is None:
             raise AnalysisServiceError("A análise de artigos não está configurada.")
         job = self.store.get(analysis_id)
-        if job.status is not AnalysisJobStatus.AWAITING_CLAIM_SELECTION:
+        if job.status not in {AnalysisJobStatus.AWAITING_CLAIM_SELECTION, AnalysisJobStatus.SUCCEEDED, AnalysisJobStatus.FAILED}:
             raise InputValidationError(
                 "Esta análise não está aguardando a seleção de alegações."
             )
+        if any((item.get("result") or {}).get("complementary", {}).get("status") == "RUNNING"
+               for item in (job.result or {}).get("claim_analyses") or ()):
+            raise InputValidationError("Aguarde a pesquisa complementar terminar antes de iniciar outra rodada.")
         if not isinstance(selections, list) or not selections:
             raise InputValidationError("Selecione ao menos uma alegação.")
         if len(selections) > 10:
@@ -746,20 +830,29 @@ class AnalysisJobService:
             for claim in getattr(self.article_runner, "_claims_for")(prepared.extracted)
         }
         selected: list[ExtractedClaim] = []
+        custom: list[ExtractedClaim] = []
         seen: set[str] = set()
         for item in selections:
-            if not isinstance(item, dict) or set(item) - {"claim_id", "text"}:
+            if not isinstance(item, dict) or set(item) - {"claim_id", "text", "source"}:
                 raise InputValidationError(
-                    "Cada seleção deve conter somente claim_id e text."
+                    "Cada seleção deve conter claim_id e text; alegações próprias podem informar source=USER."
                 )
             claim_id = item.get("claim_id")
             claim_text = item.get("text")
-            if claim_id not in originals or claim_id in seen:
+            if not isinstance(claim_id, str) or not claim_id or len(claim_id) > 80 or claim_id in seen:
+                raise InputValidationError("A seleção contém uma alegação inválida ou repetida.")
+            if item.get("source") not in {None, "USER"}:
+                raise InputValidationError("A origem da alegação deve ser USER quando adicionada manualmente.")
+            if claim_id not in originals and (item.get("source") != "USER" or not claim_id.startswith("user-")):
                 raise InputValidationError("A seleção contém uma alegação inválida ou repetida.")
             if not isinstance(claim_text, str) or not 8 <= len(claim_text.strip()) <= 2000:
                 raise InputValidationError(
                     "O texto editado de cada alegação deve ter entre 8 e 2.000 caracteres."
                 )
+            if claim_id not in originals:
+                original = ExtractedClaim(claim_id, claim_text.strip(), claim_text.strip(), edited=True, user_supplied=True)
+                originals[claim_id] = original
+                custom.append(original)
             original = originals[claim_id]
             normalized = claim_text.strip()
             selected.append(
@@ -771,14 +864,33 @@ class AnalysisJobService:
                         if normalized == original.text
                         else normalized
                     ),
-                    edited=normalized != original.text,
+                    edited=normalized != original.text or original.user_supplied,
                 )
             )
             seen.add(claim_id)
+        if custom:
+            prepared = replace(prepared, extracted=replace(prepared.extracted,
+                claims=tuple(self.article_runner._claims_for(prepared.extracted)) + tuple(custom)))
+        documents = self.comparison_documents(comparison, prepared, source_base_url) if comparison is not None else None
+        snapshot = json.loads(json.dumps(job.result or self.article_runner.preparation_result(prepared)))
+        previous = {item["claim_id"]: item for item in snapshot.get("claim_analyses") or ()}
+        for claim in selected:
+            previous[claim.claim_id] = {"claim_id": claim.claim_id, "claim": self.article_runner._claim_payload(claim)
+                if hasattr(self.article_runner, "_claim_payload") else {"text": claim.text}, "status": "QUEUED"}
+        snapshot["claim_analyses"] = list(previous.values())
+        if custom:
+            snapshot.setdefault("submitted_article", {})["claims"] = [
+                ArticleFirstAnalysisRunner._claim_payload(claim) for claim in self.article_runner._claims_for(prepared.extracted)
+            ]
+        snapshot["comparison"] = {"mode": "MANUAL" if documents is not None else "AUTOMATIC",
+                                   "article_ids": [key for key, _ in documents or ()]}
         researching = self.store.transition(
             analysis_id,
             status=AnalysisJobStatus.RESEARCHING,
             progress=45,
+            result=snapshot,
+            error={},
+            workflow=prepared.to_workflow_payload(),
         )
         try:
             self.executor.submit(
@@ -787,6 +899,7 @@ class AnalysisJobService:
                 prepared,
                 tuple(selected),
                 depth,
+                documents,
             )
         except Exception:
             self.store.transition(
@@ -800,53 +913,108 @@ class AnalysisJobService:
             )
         return researching
 
-    def _run_selected_claims(
-        self,
-        analysis_id: str,
-        prepared: PreparedArticle,
-        selected_claims: tuple[ExtractedClaim, ...],
-        depth: str = "QUICK",
-    ) -> None:
+    def _run_selected_claims(self, analysis_id, prepared, selected_claims, depth="QUICK", documents=None):
         with bind_log_context(analysis_id=analysis_id):
+            snapshot = json.loads(json.dumps(self.store.get(analysis_id).result))
+            for position, claim in enumerate(selected_claims):
+                entries = snapshot["claim_analyses"]
+                index = next(i for i, item in enumerate(entries) if item["claim_id"] == claim.claim_id)
+                entries[index]["status"] = "RUNNING"
+                progress = 45 + int(50 * position / len(selected_claims))
+                self.store.transition(analysis_id, status=AnalysisJobStatus.RESEARCHING, progress=progress,
+                                      result=json.loads(json.dumps(snapshot)))
+                try:
+                    options = {"depth": depth}
+                    if documents is not None:
+                        options["comparison_documents"] = documents
+                    one = dict(self.article_runner.analyze_prepared(prepared, (claim,), **options))
+                    completed = next(item for item in one["claim_analyses"] if item["claim_id"] == claim.claim_id)
+                    completed.setdefault("status", "SUCCEEDED")
+                    completed["comparison"] = dict(snapshot["comparison"])
+                    entries[index] = completed
+                    # Mantém dossiê, metadados e resultados das outras alegações.
+                    for key, value in one.items():
+                        if key != "claim_analyses":
+                            snapshot[key] = value
+                except Exception as error:
+                    logger.exception("Falha na alegação %s", claim.claim_id)
+                    message = str(error) if isinstance(error, (AnalysisServiceError, ArticleIngestionError, GeminiAnalysisError)) else "A comparação desta alegação falhou. Tente novamente."
+                    entries[index] = {**entries[index], "status": "FAILED", "error": {"message": message}}
+                self.store.transition(analysis_id, status=AnalysisJobStatus.RESEARCHING,
+                    progress=45 + int(50 * (position + 1) / len(selected_claims)),
+                    result=json.loads(json.dumps(snapshot)))
+            snapshot.setdefault("reproducibility", {})["selected_claims"] = [item["claim_id"] for item in snapshot["claim_analyses"]]
+            successful = any(item.get("status") == "SUCCEEDED" for item in snapshot["claim_analyses"])
+            self.store.transition(analysis_id,
+                status=AnalysisJobStatus.SUCCEEDED if successful else AnalysisJobStatus.FAILED,
+                progress=100, result=snapshot,
+                error={} if successful else {"code": "ARTICLE_ANALYSIS_FAILED", "message": "As alegações selecionadas falharam. Você pode tentar novamente."})
+
+    def resolve_library_submission(self, submission):
+        if self.article_runner is None:
+            raise AnalysisServiceError("A leitura de artigos não está configurada.")
+        resolver = getattr(self.article_runner, "reference_resolver", None)
+        resolved = resolver.resolve(submission) if submission.reference and resolver else None
+        if resolved is None and submission.mime_type == "application/pdf":
+            parser = getattr(self.article_runner, "document_parser", None)
+            if parser is None:
+                raise AnalysisServiceError("A leitura de PDFs não está configurada.")
             try:
-                assert self.article_runner is not None
-                with logged_step(
-                    logger,
-                    "selected_claims_pipeline",
-                    claim_count=len(selected_claims),
-                    depth=depth,
-                ):
-                    result = self.article_runner.analyze_prepared(
-                        prepared,
-                        selected_claims,
-                        depth=depth,
-                    )
-            except (AnalysisServiceError, ArticleIngestionError, GeminiAnalysisError) as error:
-                self.store.transition(
-                    analysis_id,
-                    status=AnalysisJobStatus.FAILED,
-                    progress=100,
-                    error={"code": "ARTICLE_ANALYSIS_FAILED", "message": str(error)},
-                )
-                return
-            except Exception:
-                self.store.transition(
-                    analysis_id,
-                    status=AnalysisJobStatus.FAILED,
-                    progress=100,
-                    error={
-                        "code": "INTERNAL_ANALYSIS_ERROR",
-                        "message": "A pesquisa das alegações falhou durante o processamento.",
-                    },
-                )
-                logger.exception("Falha ao pesquisar alegações selecionadas")
-                return
-            self.store.transition(
-                analysis_id,
-                status=AnalysisJobStatus.SUCCEEDED,
-                progress=100,
-                result=result,
-            )
+                parsed = parser.parse_pdf(submission.content)
+            except DocumentParsingError as error:
+                raise InputValidationError(str(error)) from error
+            resolved = ResolvedArticleDocument(title=None, doi=None, text=parsed.text,
+                parser_name=parsed.parser_name, page_count=parsed.page_count,
+                pages=tuple(parsed.pages or ()), content_scope="LOCAL_PDF_FULL_TEXT")
+        if resolved is None or not resolved.text.strip():
+            raise InputValidationError("Não foi possível recuperar o texto. Use um artigo do PubMed ou envie o PDF.")
+        return resolved
+
+    def save_library_article(self, payload):
+        if "analysis_id" in payload:
+            job = self.store.get(payload["analysis_id"])
+            if not job.workflow:
+                raise InputValidationError("A análise não possui uma fonte preparada para guardar.")
+            prepared = PreparedArticle.from_workflow_payload(job.workflow)
+            return self.library.save(prepared.submission, prepared.resolved, analysis_id=job.analysis_id)
+        submission = validate_article_submission(payload)
+        return self.library.save(submission, self.resolve_library_submission(submission))
+
+    def comparison_documents(self, comparison, prepared, source_base_url):
+        if not isinstance(comparison, dict) or set(comparison) - {"mode", "article_ids", "references", "files"}:
+            raise InputValidationError("Configuração de comparação inválida.")
+        if comparison.get("mode", "AUTOMATIC") == "AUTOMATIC":
+            if any(comparison.get(key) for key in ("article_ids", "references", "files")):
+                raise InputValidationError("Selecione comparação manual para fornecer artigos.")
+            return None
+        if comparison.get("mode") != "MANUAL":
+            raise InputValidationError("O modo deve ser AUTOMATIC ou MANUAL.")
+        ids, references, files = (comparison.get(key) or [] for key in ("article_ids", "references", "files"))
+        if any(not isinstance(values, list) for values in (ids, references, files)) or not 1 <= len(ids)+len(references)+len(files) <= 20:
+            raise InputValidationError("Escolha de 1 a 20 artigos para comparar.")
+        if any(not isinstance(value, str) for value in ids + references):
+            raise InputValidationError("Identificadores e referências devem ser texto.")
+        ids = list(ids)
+        for reference in references:
+            saved = self.save_library_article({"article_reference": reference})
+            ids.append(saved["article_id"])
+        for file in files:
+            saved = self.save_library_article({"article_file": file})
+            ids.append(saved["article_id"])
+        documents = []
+        for article_id in dict.fromkeys(ids):
+            saved_submission, document = self.library.load(article_id)
+            if document.title is None:
+                document = replace(document, title=saved_submission.file_name or "Documento da biblioteca")
+            target = prepared.resolved
+            if target and (document.text == target.text or
+                (document.pmid and document.pmid == target.pmid) or
+                (document.doi and target.doi and document.doi.lower() == target.doi.lower())):
+                raise InputValidationError("O artigo alvo não pode ser usado como referência contra si próprio.")
+            document = replace(document, source_url=document.source_url or
+                source_base_url.rstrip('/') + '/api/v1/library/articles/' + article_id)
+            documents.append((article_id, document))
+        return tuple(documents)
 
     def get(self, analysis_id: str) -> AnalysisJob:
         return self.store.get(analysis_id)
@@ -1044,6 +1212,44 @@ class AnalysisJobService:
     def close(self, *, wait: bool = True) -> None:
         if self._owns_executor:
             self.executor.shutdown(wait=wait)
+        if wait:
+            self.library.close()
+            vector_store = getattr(self.runner, "vector_store", None)
+            close_vector_store = getattr(vector_store, "close", None)
+            if callable(close_vector_store):
+                close_vector_store()
+
+    def readiness(self) -> dict[str, str]:
+        """Verifica dependências locais sem consumir PubMed ou Gemini."""
+
+        database = "ok"
+        try:
+            check = getattr(self.store, "healthcheck", None)
+            if callable(check):
+                check()
+            else:
+                self.store.list_ids(AnalysisJobStatus.QUEUED)
+        except Exception:
+            database = "error"
+        executor = "ok" if not getattr(self.executor, "_shutdown", False) else "error"
+        payload = {
+            "status": "ok" if database == executor == "ok" else "degraded",
+            "database": database,
+            "executor": executor,
+        }
+        from .retrieval_backend import RetrievalSettings
+        settings = getattr(self.runner, "retrieval_settings", None)
+        if isinstance(settings, RetrievalSettings) and settings.backend == "qdrant":
+            try:
+                self.runner.vector_store.health_check()
+                payload["vector_store"] = "ok"
+            except Exception:
+                if settings.failure_mode == "bm25":
+                    payload["vector_store"] = "unavailable_explicit_bm25"
+                else:
+                    payload["vector_store"] = "error"
+                    payload["status"] = "degraded"
+        return payload
 
 
 def _serialize_assessment(assessment: Any) -> dict[str, Any]:
@@ -1261,11 +1467,15 @@ def create_app(
     *,
     mode_label: str = "PROTÓTIPO LOCAL — resultados dependem do backend configurado",
     article_search: PubMedTopicSearch | None = None,
+    topic_clusterer: Any = None,
+    reference_comparer: Any = None,
+    structured_search: Callable[..., Mapping[str, Any]] | None = None,
 ) -> Flask:
     """Cria a aplicação sem inicializar modelos ou serviços externos no import."""
 
     app = Flask(__name__)
-    app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024
+    # Um arquivo de 25 MiB cresce ~33% em Base64; a margem cobre o envelope JSON.
+    app.config["MAX_CONTENT_LENGTH"] = 36 * 1024 * 1024
     register_web_ui(app, mode_label=mode_label)
 
     @app.before_request
@@ -1311,6 +1521,71 @@ def create_app(
     def health():
         return jsonify({"status": "ok"})
 
+    @app.get("/api/v1/ready")
+    def readiness():
+        payload = job_service.readiness()
+        return jsonify(payload), (200 if payload["status"] == "ok" else 503)
+
+    @app.get("/api/v1/library/articles")
+    def list_library_articles():
+        try:
+            return jsonify({"articles": job_service.library.list(request.args.get("q", ""))})
+        except InputValidationError as error:
+            return _error_response("INVALID_INPUT", str(error), 422)
+
+    @app.post("/api/v1/library/articles")
+    def save_library_article():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or set(payload) - {"analysis_id", "article_reference", "article_file"}:
+            return _error_response("INVALID_INPUT", "Envie analysis_id ou uma referência/arquivo.", 422)
+        if "analysis_id" in payload and (len(payload) != 1 or not isinstance(payload["analysis_id"], str)):
+            return _error_response("INVALID_INPUT", "Envie somente analysis_id.", 422)
+        try:
+            return jsonify(job_service.save_library_article(payload)), 201
+        except AnalysisJobNotFoundError:
+            return _error_response("ANALYSIS_NOT_FOUND", "Análise não encontrada.", 404)
+        except (InputValidationError, ArticleIngestionError) as error:
+            return _error_response("INVALID_INPUT", str(error), 422)
+        except (AnalysisServiceError, PubMedError) as error:
+            return _error_response("LIBRARY_UNAVAILABLE", str(error), 503)
+
+    @app.get("/api/v1/library/articles/<article_id>")
+    def get_library_article(article_id):
+        try:
+            return jsonify(job_service.library.get(article_id))
+        except InputValidationError as error:
+            return _error_response("ARTICLE_NOT_FOUND", str(error), 404)
+
+    @app.get("/api/v1/library/articles/<article_id>/file")
+    def download_library_file(article_id):
+        try:
+            content, metadata = job_service.library.original_file(article_id)
+            return send_file(BytesIO(content), mimetype=metadata.get("mime_type") or "application/octet-stream",
+                             as_attachment=True, download_name=secure_filename(metadata.get("file_name") or "document.pdf"))
+        except InputValidationError as error:
+            return _error_response("FILE_NOT_FOUND", str(error), 404)
+
+    @app.patch("/api/v1/library/articles/<article_id>")
+    def annotate_library_article(article_id):
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or set(payload) != {"notes", "tags"}:
+            return _error_response("INVALID_INPUT", "Envie notes e tags.", 422)
+        try:
+            return jsonify(job_service.library.annotate(article_id, payload["notes"], payload["tags"]))
+        except InputValidationError as error:
+            return _error_response("INVALID_INPUT", str(error), 422)
+
+    @app.post("/api/v1/library/articles/<article_id>/analyses")
+    def analyze_library_article(article_id):
+        try:
+            submission, document = job_service.library.load(article_id)
+            job = job_service.submit_article(submission, resolved_document=document)
+            return jsonify({"analysis_id": job.analysis_id, "status_url": url_for("get_analysis", analysis_id=job.analysis_id)}), 202
+        except InputValidationError as error:
+            return _error_response("ARTICLE_NOT_FOUND", str(error), 404)
+        except AnalysisServiceError as error:
+            return _error_response("ARTICLE_ANALYSIS_UNAVAILABLE", str(error), 503)
+
     @app.post("/api/v1/pubmed-search")
     def search_pubmed_topics():
         if article_search is None:
@@ -1335,6 +1610,97 @@ def create_app(
             return _error_response("INVALID_INPUT", str(error), 400)
         except PubMedError:
             return _error_response("PUBMED_UNAVAILABLE", "Não foi possível consultar o PubMed. Tente novamente em instantes.", 502)
+
+    @app.post("/api/v1/analyses/<analysis_id>/references")
+    def compare_analysis_references(analysis_id):
+        from .reference_comparison import analysis_articles
+        if reference_comparer is None:
+            return _error_response("REFERENCES_UNAVAILABLE", "Comparação de referências indisponível.", 503)
+        if not request.is_json:
+            return _error_response("UNSUPPORTED_MEDIA_TYPE", "Envie JSON.", 415)
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or not isinstance(payload.get("refresh", False), bool):
+            return _error_response("INVALID_INPUT", "JSON inválido.", 400)
+        claim_id = payload.get("claim_id")
+        if claim_id is not None and not isinstance(claim_id, str):
+            return _error_response("INVALID_INPUT", "claim_id deve ser texto.", 400)
+        def selected(root):
+            claims = root.get("claim_analyses") or []
+            if claims:
+                matches = [item for item in claims if item.get("claim_id") == claim_id] if claim_id else claims if len(claims) == 1 else []
+                if len(matches) != 1 or matches[0].get("status") != "SUCCEEDED":
+                    raise InputValidationError("Selecione uma alegação com pesquisa concluída.")
+                return matches[0].get("result") or {}
+            if claim_id:
+                raise InputValidationError("A alegação não pertence a esta análise.")
+            return root
+        try:
+            job = job_service.get(analysis_id)
+            if job.status != AnalysisJobStatus.SUCCEEDED:
+                return _error_response("ANALYSIS_NOT_READY", "Conclua a pesquisa antes de comparar referências.", 409)
+            root = job.result or {}
+            result = selected(root)
+            articles = analysis_articles(result, root.get("submitted_article"))
+            if not articles:
+                raise InputValidationError("Esta análise não possui artigos para comparar.")
+            fingerprint = reference_comparer.fingerprint(articles)
+            cached = result.get("reference_comparison")
+            if cached and cached.get("fingerprint") == fingerprint and not payload.get("refresh", False):
+                return jsonify({**cached, "cache_hit": True})
+            report = reference_comparer.compare(articles)
+            latest = job_service.get(analysis_id)
+            if latest.status != AnalysisJobStatus.SUCCEEDED:
+                return _error_response("ANALYSIS_CHANGED", "A análise mudou durante a consulta. Tente novamente.", 409)
+            updated = deepcopy(latest.result or {})
+            target = selected(updated)
+            if reference_comparer.fingerprint(analysis_articles(target, updated.get("submitted_article"))) != fingerprint:
+                return _error_response("ANALYSIS_CHANGED", "Os artigos mudaram durante a consulta. Tente novamente.", 409)
+            target["reference_comparison"] = report
+            job_service.store.update_result(analysis_id, updated)
+            return jsonify({**report, "cache_hit": False})
+        except AnalysisJobNotFoundError:
+            return _error_response("ANALYSIS_NOT_FOUND", "Análise não encontrada.", 404)
+        except InputValidationError as error:
+            return _error_response("INVALID_INPUT", str(error), 400)
+
+    @app.post("/api/v1/pubmed-clusters")
+    def cluster_pubmed_results():
+        if topic_clusterer is None:
+            return _error_response("CLUSTERING_UNAVAILABLE", "Agrupamento de temas indisponível.", 503)
+        payload = request.get_json(silent=True)
+        if not request.is_json:
+            return _error_response("UNSUPPORTED_MEDIA_TYPE", "Envie JSON para agrupar os artigos.", 415)
+        if not isinstance(payload, dict):
+            return _error_response("INVALID_JSON", "O JSON enviado é inválido.", 400)
+        try:
+            return jsonify(topic_clusterer.cluster(payload.get("articles")))
+        except InputValidationError as error:
+            return _error_response("INVALID_INPUT", str(error), 400)
+        except TopicClusteringError as error:
+            return _error_response("CLUSTERING_UNAVAILABLE", str(error), 503)
+
+    @app.post("/api/v1/structured-search")
+    def search_structured_sources():
+        if structured_search is None:
+            return _error_response("SEARCH_UNAVAILABLE", "Busca estruturada indisponível.", 503)
+        if not request.is_json:
+            return _error_response("UNSUPPORTED_MEDIA_TYPE", "Envie o corpo como application/json.", 415)
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return _error_response("INVALID_JSON", "O JSON enviado é inválido.", 400)
+        try:
+            claim = payload.get("claim")
+            limit = payload.get("limit", 5)
+            if not isinstance(claim, str) or not claim.strip():
+                raise InputValidationError("A alegação deve ser um texto não vazio.")
+            if not isinstance(limit, int) or isinstance(limit, bool):
+                raise InputValidationError("limit deve ser um inteiro.")
+            return jsonify(structured_search(claim, limit=limit))
+        except (InputValidationError, ValueError) as error:
+            return _error_response("INVALID_INPUT", str(error), 422)
+        except StructuredSourceError as error:
+            logger.exception("Falha na busca estruturada")
+            return _error_response("STRUCTURED_SEARCH_FAILED", str(error), 502)
 
     @app.post("/api/v1/analyses")
     def create_analysis():
@@ -1436,6 +1802,11 @@ def create_app(
                 for key, value in serialize_analysis_job(job).items()
                 if key != "result"
             }
+            payload["claim_progress"] = [
+                {"claim_id": item.get("claim_id"), "text": (item.get("claim") or {}).get("text"),
+                 "status": item.get("status"), "error": item.get("error")}
+                for item in (job.result or {}).get("claim_analyses") or ()
+            ]
             response = jsonify(payload)
             if job.status in {
                 AnalysisJobStatus.QUEUED,
@@ -1570,7 +1941,7 @@ def create_app(
         if (
             not isinstance(payload, dict)
             or "claims" not in payload
-            or set(payload) - {"claims", "depth"}
+            or set(payload) - {"claims", "depth", "comparison"}
         ):
             return _error_response(
                 "INVALID_INPUT",
@@ -1582,6 +1953,8 @@ def create_app(
                 analysis_id,
                 payload.get("claims"),
                 payload.get("depth", "QUICK"),
+                payload.get("comparison"),
+                request.url_root,
             )
         except AnalysisJobNotFoundError:
             return _error_response(

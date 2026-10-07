@@ -27,7 +27,7 @@ USER fatofake
 EXPOSE 5000
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/v1/health', timeout=3)"
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/v1/ready', timeout=3)"
 
 # Um worker preserva o store de jobs em memória; threads permitem polling concorrente.
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "300", "--access-logfile", "-", "--error-logfile", "-", "fatofake.wsgi:application"]

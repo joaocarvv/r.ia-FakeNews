@@ -29,6 +29,7 @@ class PubMedOnlyMvpTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             stack.enter_context(patch.dict(os.environ, {
                 "GEMINI_API_KEY": "test-key", "ENABLE_CRAWL4AI": "true",
+                "ASSESS_METHODOLOGY": "true",
                 "OPENALEX_API_KEY": "old-key", "UNPAYWALL_EMAIL": "old@example.org",
                 "JOB_DATABASE_PATH": str(Path(directory) / "jobs.sqlite3"),
             }, clear=True))
@@ -149,12 +150,51 @@ class PubMedOnlyMvpTests(unittest.TestCase):
             validate_article_submission({"article_reference": "123456"}), resolved
         )
         self.assertEqual(result["study"]["sample_size"], "240")
-        self.assertEqual(result["study"]["population"], "Não informado")
-        self.assertEqual(result["study"]["design"], "Não informado")
+        self.assertEqual(result["study"]["population"], None)
+        self.assertEqual(result["study"]["design"], None)
         self.assertEqual(result["study"]["statistical_methods"], [])
+        self.assertEqual(result["study_field_sources"]["sample_size"][0]["text"], "240")
+        self.assertIn("240 adults", result["study_field_sources"]["sample_size"][0]["quote"])
+        self.assertNotIn("population", result["study_field_sources"])
         self.assertEqual(result["limitations"], [])
         self.assertEqual(result["methodology_assessment"], "NOT_EVALUATED")
         self.assertNotIn("tools", gateway._post_json.call_args.args[1])
+
+
+    def test_factual_table_does_not_expose_unverified_data_or_inferred_design(self):
+        articles = [{
+            "pmid": "123", "title": "Study", "publication_types": ["Multicenter Study"],
+            "quality": {"study_design": "OBSERVATIONAL"},
+            "assessments": [{"relation": "NEUTRAL", "study_row": {
+                "population": "children", "sample_size": "999",
+                "design_detail": "Randomized trial",
+            }}],
+        }]
+        row = synthesize_evidence(articles, candidate_count=1, assess_methodology=False)["rows"][0]
+        self.assertIsNone(row["population"])
+        self.assertIsNone(row["sample_size"])
+        self.assertIsNone(row["design_detail"])
+        self.assertIsNone(row["design_label"])
+        self.assertEqual(row["publication_types"], ["Multicenter Study"])
+        self.assertEqual(row["publication_types_source"], "PubMed · PublicationType")
+
+    def test_unverified_whole_article_findings_and_funding_are_omitted(self):
+        output = {
+            "main_findings": [{"finding": "Invented", "citations": [{"quote": "Not in text", "section": "Results"}]}],
+            "funding": {"status": "REPORTED", "statement": "Invented sponsor", "citations": []},
+            "strengths": ["Strong methods"], "red_flags": ["High bias"],
+        }
+        gateway = Mock(model_name="controlled-model", assess_methodology=False)
+        gateway._post_json.return_value = output
+        gateway._response_text.return_value = json.dumps(output)
+        resolved = ResolvedArticleDocument(title="Study", doi=None, text="An available abstract.", content_scope="ABSTRACT_ONLY")
+        report = GeminiWholeArticleAnalyzer(gateway).analyze(
+            validate_article_submission({"article_reference": "123456"}), resolved
+        )
+        self.assertEqual(report["main_findings"], [])
+        self.assertEqual(report["funding"], {})
+        self.assertEqual(report["strengths"], [])
+        self.assertEqual(report["red_flags"], [])
 
 
 if __name__ == "__main__":

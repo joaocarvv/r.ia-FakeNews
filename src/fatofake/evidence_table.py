@@ -168,6 +168,14 @@ def build_evidence_rows(
         study_row = _clean_row(dict((assessment or {}).get("study_row") or {}))
         evidence = (assessment or {}).get("evidence") or {}
         design = str((article.get("quality") or {}).get("study_design") or "NOT_ASSESSED")
+        if not assess_methodology:
+            # Somente campos que passaram pela verificação literal da extração.
+            sources = study_row.get("field_sources") or {}
+            for field in ("design_detail", "population", "sample_size", "intervention_or_exposure",
+                          "comparator", "outcome", "effect_estimate", "cohort_or_dataset"):
+                origin = sources.get(field) or {}
+                if not origin.get("text") or origin.get("text") != study_row.get(field):
+                    study_row[field] = ""
         relation = (assessment or {}).get("relation") or "NOT_ASSESSED"
         comparability = (
             study_row.get("comparability") or ("INDIRECT" if assessment else None)
@@ -210,13 +218,17 @@ def build_evidence_rows(
                 "title": article.get("title"),
                 "title_pt": study_row.get("title_pt") or None,
                 "journal": article.get("journal"),
+                "authors": list(article.get("authors") or ()),
+                "pmcid": article.get("pmcid"),
                 "is_medline": bool(article.get("is_medline")),
                 "year": _year(article.get("publication_date")),
                 "publication_date": article.get("publication_date"),
                 "relation": relation,
                 "assessed": assessment is not None,
                 "design": design,
-                "design_label": DESIGN_LABELS.get(design, design),
+                "design_label": (DESIGN_LABELS.get(design, design) if assess_methodology else None),
+                "publication_types": list(article.get("publication_types") or ()),
+                "publication_types_source": "PubMed · PublicationType" if article.get("pmid") and article.get("publication_types") else None,
                 "design_detail": study_row.get("design_detail") or None,
                 "population": study_row.get("population") or None,
                 "sample_size": study_row.get("sample_size") or None,
@@ -439,8 +451,7 @@ def synthesize_evidence(
     elif direct_weight == 0:
         code, label = "NO_DIRECT_EVIDENCE", "Sem evidência direta sobre a alegação"
         explanation = (
-            "Nenhum estudo avaliado respondeu diretamente à alegação com peso "
-            "metodológico suficiente."
+            "Nenhum trecho citável analisado permitiu uma comparação direta com a alegação."
         )
     else:
         share = max(supports, contradicts) / direct_weight

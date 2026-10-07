@@ -4,9 +4,29 @@ O fluxo principal definido para o MVP está documentado em [`docs/fluxo-mvp.md`]
 
 O runtime desta branch usa somente o ecossistema da National Library of Medicine: pesquisa e metadados pelo PubMed e texto completo pelo PubMed Central (PMC), quando disponível. PDFs enviados pelo usuário continuam aceitos como documento de entrada. Integrações históricas com outras bases permanecem no código para preservar o trabalho anterior, mas não são instanciadas pela aplicação.
 
-A aplicação não declara que um artigo é verdadeiro, falso ou metodologicamente confiável. O modelo organiza trechos citáveis e descreve relações textuais; desenho, amostra, população e transparência são apresentados apenas quando explicitamente encontrados. Risco de viés, adequação metodológica e validade das conclusões ficam marcados como não avaliados automaticamente.
+A aplicação não declara que um artigo é verdadeiro ou falso. O modelo organiza
+trechos citáveis e descreve relações textuais. O MVP apresenta metadados estruturados
+com sua origem e dados extraídos literalmente do texto, com trechos de referência.
+Campos sem respaldo são omitidos; cobertura e limites da leitura continuam visíveis.
+`PublicationType` é apresentado como tipo de publicação informado pelo PubMed,
+não como confirmação independente do desenho do estudo. O MVP não atribui nota de
+qualidade, risco de viés ou certeza metodológica, mesmo que uma configuração antiga
+contenha `ASSESS_METHODOLOGY=true`. Resumos narrativos são produzidos pelo modelo;
+a localização literal de uma citação não valida sua interpretação científica.
 
 ## Escopo desta branch
+
+- Várias alegações no mesmo artigo: seleção em lote, navegação durante a pesquisa,
+  resultados por alegação e novas rodadas sem reler a fonte nem apagar as demais.
+  Também é possível adicionar alegações próprias, identificadas como conteúdo do usuário.
+- Comparação manual com até 20 referências: artigos da biblioteca, PMIDs, links do
+  PubMed, DOIs indexados e PDFs. Esse modo usa somente os documentos escolhidos,
+  registra a seleção por alegação e rejeita a comparação do artigo contra si próprio.
+- Biblioteca local persistente no SQLite: guarda texto disponível, arquivos enviados, metadados,
+  análises vinculadas, notas e etiquetas. A busca consulta título, texto e notas/etiquetas
+  com FTS5. A biblioteca pertence à instalação; autenticação e bibliotecas por conta
+  ainda não fazem parte do MVP. Não há índice FAISS nesta implementação.
+
 
 - Interface organizada em fonte, leitura e evidências, com abas para tema, referência
   e arquivo. O resultado começa pelo resumo e pelos trechos; detalhes adicionais
@@ -23,7 +43,7 @@ A aplicação não declara que um artigo é verdadeiro, falso ou metodologicamen
 - Fallback: abstract do PubMed, identificado na interface.
 - Entrada opcional: PDF ou imagem enviados pelo usuário.
 - Sem OpenAlex, SciELO, Europe PMC, Unpaywall, Semantic Scholar, Crossref, DataCite ou ClinicalTrials.gov no runtime.
-- Sem pontuação automática de qualidade, GRADE, RoB 2, ROBINS-I ou AMSTAR 2.
+- Sem avaliação automática de GRADE, RoB 2, ROBINS-I ou AMSTAR 2 no MVP.
 
 O entrypoint `create_live_retrieval_app` delega ao factory `create_pubmed_only_app`.
 PMID, DOI e links de artigo do PubMed são aceitos; referências sem conteúdo
@@ -44,6 +64,16 @@ vêm do PubMed. Sem chave ou se a expansão falhar, a consulta original continua
 disponível. São apresentados até dez artigos potencialmente relacionados, sem
 avaliação de qualidade metodológica. Ao selecionar um resultado, o formulário de
 análise é preenchido; a análise só começa após clicar em “Verificar artigo”.
+
+Durante a análise de um artigo, cada alegação selecionada também pode acionar uma
+consulta dinâmica ao NCBI Gene e ao ClinVar via E-utilities. Os registros aparecem
+na seção **Pesquisa biomédica dinâmica** do resultado, separados da literatura do
+PubMed/PMC. O endpoint auxiliar `POST /api/v1/structured-search` também aceita
+`{"claim": "A variante BRCA1 c.5266dupC aumenta o risco de câncer de mama?"}` para
+demonstrações isoladas. O retorno separa entidades detectadas, registros estruturados
+e falhas por fonte; esses registros não geram sozinhos um veredito de verdadeiro ou
+falso. As respostas ficam em cache em memória pelo período de
+`STRUCTURED_SEARCH_CACHE_TTL`.
 
 ## Arquivos principais
 
@@ -150,8 +180,9 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 |---|---:|---|---|
 | `GEMINI_API_KEY` | Recomendada | vazio | Autentica a análise, classificação e síntese com Gemini. Sem ela, o notebook usa o fallback local. |
 | `LLM_MODEL` | Não | `gemini-flash-lite-latest` | Modelo Gemini usado pelo endpoint REST. Troque somente por um modelo disponível na sua conta. |
+| `ASSESS_METHODOLOGY` | Não | `false` | Configuração legada; ignorada pelo MVP, que apresenta somente dados rastreáveis. |
 | `EMBEDDING_MODEL` | Não | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Modelo local multilíngue usado na busca semântica. |
-| `TRANSLATION_MODEL` | Não | `Helsinki-NLP/opus-mt-ROMANCE-en` | Traduz localmente a alegação em português para ampliar a busca científica em inglês; não produz o veredito. |
+| `TRANSLATION_MODEL` | Não | `Helsinki-NLP/opus-mt-ROMANCE-en` | Modelo local preferido para traduzir consultas. Se os pacotes locais não estiverem instalados e houver chave Gemini, a tradução usa o Gemini; nenhum dos dois produz o veredito. |
 | `NCBI_API_KEY` | Não | vazio | Aumenta o limite da API do NCBI. A POC funciona sem essa chave. |
 | `NCBI_EMAIL` | Recomendada | vazio | Identifica o responsável pelas chamadas ao NCBI. Use um e-mail de contato válido. |
 | `MAX_SOURCES` | Não | `8` | Máximo de publicações recuperadas por claim. |
@@ -159,6 +190,7 @@ O `.env` está listado no `.gitignore` e não deve ser versionado.
 | `CHUNK_OVERLAP` | Não | `12` | Sobreposição entre chunks consecutivos. Deve ser menor que `CHUNK_WORDS`. |
 | `TOP_K` | Não | `6` | Número máximo de trechos enviados à classificação. |
 | `HTTP_TIMEOUT` | Não | `20` | Timeout, em segundos, para APIs e páginas externas. |
+| `STRUCTURED_SEARCH_CACHE_TTL` | Não | `300` | Tempo, em segundos, do cache local das consultas dinâmicas ao NCBI Gene e ClinVar. |
 | `LLM_TIMEOUT` | Não | `120` | Timeout, em segundos, para uma chamada Gemini. |
 | `LLM_MAX_ATTEMPTS` | Não | `3` | Tentativas para erros temporários `429`, `5xx` e falhas de rede da Gemini. |
 | `LLM_RETRY_BACKOFF` | Não | `1` | Espera exponencial inicial, em segundos, entre tentativas da Gemini. |
@@ -174,6 +206,7 @@ EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 TRANSLATION_MODEL=Helsinki-NLP/opus-mt-ROMANCE-en
 GEMINI_API_KEY=cole_sua_chave_aqui
 LLM_MODEL=gemini-flash-lite-latest
+ASSESS_METHODOLOGY=false
 NCBI_API_KEY=
 NCBI_EMAIL=seu-email@exemplo.com
 MAX_SOURCES=8
@@ -279,7 +312,9 @@ analisados, atualidade, citações e ramificação — e não a chance de o arti
 3. **Investigação.** As consultas são enviadas somente ao PubMed. Para cada PMID,
    o texto integral é obtido pelo PMC quando disponível; caso contrário, a análise
    fica explicitamente limitada ao abstract. A tabela copia informações factuais
-   e trechos citáveis, sem atribuir risco de viés ou nota metodológica.
+   e trechos citáveis. Com a triagem metodológica ativa, a tabela também mostra
+   comparabilidade PICO, risco de viés por domínio, peso e certeza estimada; esses
+   campos não substituem a aplicação humana dos instrumentos formais.
 
 O resultado separa “não encontrado” de “não existe”, mostra a linha do tempo,
 permite enviar o PDF de um estudo fechado e exporta o relatório em Markdown ou
@@ -379,3 +414,114 @@ Execute o setup do Crawl4AI/Playwright e confirme que a página permite acesso a
 Os resultados dependem da cobertura do PubMed e das páginas configuradas, da qualidade das consultas, da atualidade das fontes e da classificação automática. O `Evidence Score` é uma heurística sobre as evidências recuperadas, não uma probabilidade matemática de verdade. Toda conclusão relevante deve manter os trechos e URLs disponíveis para revisão humana.
 
 O benchmark da etapa 19 é uma regressão de segurança com casos controlados. Ele não mede acurácia clínica; essa avaliação exige um conjunto ouro de casos reais revisados por especialistas.
+
+### Recuperação vetorial persistente (opcional)
+
+SQLite continua guardando biblioteca, PDFs, notas e análises. Qdrant guarda os
+embeddings e os chunks rastreáveis para reutilização, inclusive após reiniciar.
+PubMed/PMC, parsing, Gemini/NLI, citações e síntese permanecem no pipeline atual.
+FAISS não é necessário para esta implementação.
+
+O padrão é `VECTOR_STORE_BACKEND=memory` e `HYBRID_RETRIEVAL_ENABLED=false`: a web
+continua com BM25, sem carregar embeddings nem conectar um serviço vetorial.
+`ScientificArticleProcessor` mantém o híbrido em memória já existente e aceita
+um backend de chunks opcional por injeção de dependência.
+
+Para ativar Qdrant local em desenvolvimento, instale `requirements.txt` e configure:
+
+```dotenv
+VECTOR_STORE_BACKEND=qdrant
+HYBRID_RETRIEVAL_ENABLED=true
+QDRANT_PATH=data/qdrant
+EMBEDDING_REVISION=v1
+VECTOR_STORE_FAILURE_MODE=error
+```
+
+O cliente local atende um processo. Para usar o serviço opcional do Compose:
+
+```bash
+docker compose --profile vector up -d qdrant
+```
+
+Configure `QDRANT_URL=http://localhost:6333` para um app no host, ou
+`QDRANT_URL=http://qdrant:6333` para o app no Compose. A URL substitui o modo local.
+O serviço usa a versão [Qdrant v1.19.2](https://github.com/qdrant/qdrant/releases/tag/v1.19.2),
+porta publicada somente em loopback e volume persistente. Não é iniciado pelo perfil padrão.
+`QDRANT_API_KEY` é opcional no cliente; quando usada, o servidor deve ter a configuração
+correspondente. Nenhuma credencial é fornecida pelo projeto.
+
+A collection combina prefixo, hash do modelo, revisão e schema; sua dimensão e
+métrica Cosine são validadas. Troque `EMBEDDING_REVISION` ao mudar os pesos do modelo.
+Texto, seção, página, URL, identificadores e versões do parser/chunker participam
+da identidade do ponto. Upsert repetido não duplica o chunk nem recalcula seu vetor.
+O payload mantém Unicode e permite reconstruir `EvidenceChunk`. Os textos exibidos
+são os mesmos chunks persistidos. Não há normalização adicional para embedding.
+
+BM25 e busca vetorial são combinados por RRF. O índice persistente só recupera os
+chunks autorizados daquele documento; ambos os rankings recebem o mesmo escopo.
+Ranking, contribuições e score são auditáveis, sem representar confiança científica.
+`VECTOR_TOP_K`, `VECTOR_MIN_SCORE`, `QDRANT_COLLECTION_PREFIX` e `QDRANT_TIMEOUT`
+controlam a recuperação. O modelo local é carregado na primeira busca; seus arquivos
+podem ser baixados por Sentence Transformers se ausentes no cache.
+
+Falhas de Qdrant, configuração ou embeddings geram erro explícito por padrão.
+Somente `VECTOR_STORE_FAILURE_MODE=bm25` autoriza retorno ao BM25, registrado em
+logs, nos trechos e nas ressalvas do resultado. Nenhum modelo alternativo é escolhido.
+Para voltar ao comportamento padrão, use `VECTOR_STORE_BACKEND=memory` e
+`HYBRID_RETRIEVAL_ENABLED=false`. Para híbrido sem persistência, use `memory` e `true`.
+O alias antigo `VECTOR_BACKEND` é aceito quando a nova variável não está definida;
+a busca híbrida sempre depende de `HYBRID_RETRIEVAL_ENABLED`.
+
+A biblioteca continua com pesquisa textual FTS5. Vetores são indexados sob demanda
+nas comparações. Recuperação vetorial não é treinamento de um modelo; o produto
+não possui classificador supervisionado de fake news. ANN, limites de candidatos,
+empates e limiares podem afetar o ranking. Um limiar zero pode recuperar trechos
+sem relevância; resultados continuam sujeitos à checagem de citações e abstinência.
+
+Avaliação offline, sem Gemini e com vetores controlados:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m fatofake.retrieval_evaluation --output artifacts/retrieval-evaluation.json
+```
+
+Para avaliar o modelo real, escolha explicitamente `--encoder sentence-transformers`.
+O relatório compara BM25, semântico em memória, híbrido em memória, Qdrant e híbrido
+Qdrant; registra recall@k, precision@k, MRR, nDCG e abstinência da recuperação.
+Os helpers de citações/groundedness verificam estrutura, sem medir verdade científica.
+Não foram executadas respostas Gemini/NLI nessa avaliação.
+
+Detalhes, limites, baseline e decisões estão em [recuperacao-vetorial.md](docs/recuperacao-vetorial.md).
+As interfaces usam a documentação oficial do [cliente Qdrant](https://github.com/qdrant/qdrant-client)
+e de [systemInstruction do Gemini](https://ai.google.dev/api/generate-content).
+
+A comparação operacional de BM25, semântico, híbrido e MedCPT sem conjunto ouro
+está documentada em [recuperação vetorial](docs/recuperacao-vetorial.md#experimento-operacional-sem-conjunto-ouro).
+O reranker MedCPT pode ser habilitado com `MEDCPT_SHADOW_ENABLED=true`; o padrão
+preserva o baseline e não carrega o modelo. Sem rótulos, o experimento mede tempo,
+reutilização e mudanças de ranking, sem estimar melhoria de relevância.
+
+Na aba **Pesquisar por tema**, os resultados do PubMed agora mostram clusters
+BERTopic: mapa dos artigos, termos de cada tema e botões que filtram a lista.
+O cálculo acontece depois da busca, sem bloquear a exibição dos artigos. Os grupos
+usam os **títulos da página atual**, não todos os resultados da consulta. Ao trocar
+de página, os grupos são recalculados; números de tema são locais à página.
+Artigos classificados como ruído pelo HDBSCAN aparecem em **Sem grupo definido**.
+Com menos de quatro artigos, o painel informa que não há dados suficientes.
+
+A rota `POST /api/v1/pubmed-clusters` recebe `articles` com `pmid` e `title`
+(até 100 artigos). O backend usa Sentence Transformers multilíngue, PCA, HDBSCAN
+e c-TF-IDF do BERTopic. `BERTOPIC_EMBEDDING_MODEL` permite configurar o encoder,
+independentemente dos encoders MedCPT da recuperação. Há cache limitado de
+embeddings e de resultados por processo; clusters não alteram o ranking PubMed.
+Falhas do agrupamento mantêm os artigos disponíveis. O mapa é uma projeção em duas
+dimensões; os temas não expressam relevância, qualidade ou concordância científica.
+A [documentação do BERTopic](https://maartengr.github.io/BERTopic/getting_started/dim_reduction/dim_reduction.html)
+descreve a integração de PCA como alternativa ao UMAP.
+
+### Citações e comparação de bibliografias
+
+Nos resultados de uma pesquisa concluída, a seção **Relações entre os artigos** permite consultar as referências reais via PubMed EFetch e PMC JATS, sem chamadas ao LLM. A consulta usa os artigos da alegação selecionada e inclui o artigo enviado quando há identificador; o conjunto exibido é limitado a 21 artigos. O PMC ID Converter pode resolver o DOI do artigo enviado.
+
+O botão **Verificar referências** mostra ligações direcionais entre artigos, referências compartilhadas, bibliografias individuais e contextos literais de citações quando disponíveis no PMC. Identidade é confirmada somente por PMID, PMCID ou DOI; títulos semelhantes não criam ligações. A sobreposição Jaccard considera obras com identificadores reconhecidos. Bibliografias indisponíveis não são tratadas como listas vazias. Referências compartilhadas não demonstram dependência entre estudos.
+
+`POST /api/v1/analyses/<analysis_id>/references` recebe `{"claim_id":"…","refresh":false}`. Em análises com várias alegações, informe `claim_id`. Os artigos são lidos do resultado salvo no servidor. A comparação é persistida em `reference_comparison`, reaberta com a análise e reutilizada enquanto o conjunto de artigos não mudar. **Atualizar referências** consulta novamente as fontes, inclusive quando a cobertura anterior foi parcial.

@@ -106,13 +106,23 @@ def build_article_dossier(
     update_types = {str(getattr(item, "update_type", "")).casefold() for item in updates}
     normalized_types = {item.casefold() for item in publication_types}
 
-    design = classify_study_design(
-        title or "",
-        text,
-        publication_types=publication_types,
-        crossref_type=crossref_type,
-        llm_context=llm_context,
-    )
+    # PublicationType é metadado bibliográfico; texto e LLM não confirmam desenho.
+    design = classify_study_design("", None, publication_types=publication_types)
+    api_fields = {
+        "pmid": "uid", "doi": "articleids[doi]", "title": "title", "authors": "authors",
+        "journal": "fulljournalname / source", "publication_date": "epubdate / pubdate",
+        "publication_types": "pubtype",
+    }
+    structured_fields = {
+        name: {"value": value, "source": "PUBMED", "field": api_fields[name],
+               "source_url": source_url}
+        for name, value in {
+            "pmid": pmid, "doi": doi, "title": title, "authors": list(authors),
+            "journal": journal, "publication_date": publication_date,
+            "publication_types": list(publication_types),
+        }.items() if pmid and value
+    }
+    sample_mention = _sample_size(text)
     protocol_ids = tuple(
         dict.fromkeys(
             match.upper()
@@ -136,6 +146,7 @@ def build_article_dossier(
         corrections.append("expression-of-concern")
 
     return {
+        "structured_fields": structured_fields,
         "identity": {
             "status": identity_status,
             "title": title,
@@ -176,7 +187,8 @@ def build_article_dossier(
             "study_design": design.design.value,
             "classification_source": design.source,
             "classification_explanation": design.rationale,
-            "sample_size": _sample_size(text),
+            "sample_size": {"status": "NOT_EVALUATED", "value": None},
+            "sample_mentions": ([sample_mention] if sample_mention["value"] else []),
             "protocol": {
                 "status": "FOUND" if protocol_ids else "NOT_FOUND",
                 "identifiers": list(protocol_ids),

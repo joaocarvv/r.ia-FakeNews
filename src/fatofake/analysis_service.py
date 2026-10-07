@@ -49,6 +49,7 @@ from .report_generation import (
 from .retrieval import Bm25Config, Bm25Index, RetrievalError
 from .search_preparation import QueryPlanner, SearchPlan, prepare_search_plan
 from .semantic_retrieval import EmbeddingEncoder, SemanticIndex
+from .retrieval_backend import ChunkIndexFactory
 
 
 class AnalysisServiceError(RuntimeError):
@@ -146,11 +147,13 @@ class ScientificArticleProcessor:
         extraction_config: ExtractionConfig | None = None,
         classification_config: ClassificationConfig | None = None,
         hybrid_top_k: int = 8,
+        vector_store: ChunkIndexFactory | None = None,
     ) -> None:
         if hybrid_top_k < 1:
             raise RetrievalError("hybrid_top_k deve ser maior que zero.")
         self.pmc_client = pmc_client
         self.embedding_encoder = embedding_encoder
+        self.vector_store = vector_store
         self.nli_classifier = nli_classifier
         self.crossref_client = crossref_client
         self.datacite_client = datacite_client
@@ -180,7 +183,8 @@ class ScientificArticleProcessor:
             chunks = chunk_article_content(content, self.chunking_config)
             stage = "hybrid_retrieval"
             lexical_index = Bm25Index(chunks, self.bm25_config)
-            semantic_index = SemanticIndex(chunks, self.embedding_encoder)
+            semantic_index = (self.vector_store.index(chunks) if self.vector_store is not None
+                              else SemanticIndex(chunks, self.embedding_encoder))
             ranked_chunks = HybridIndex(
                 lexical_index,
                 semantic_index,

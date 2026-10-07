@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+import math
 import unicodedata
 from dataclasses import dataclass
-from typing import Sequence
+from time import perf_counter
+from typing import Protocol, Sequence
 
 from .federated_search import ScientificWork
 
@@ -46,6 +48,10 @@ _MESH_DESCRIPTORS = {
 def _plain(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", value.casefold())
     return "".join(char for char in decomposed if not unicodedata.combining(char))
+
+
+def _contains_phrase(text: str, phrase: str) -> bool:
+    return bool(re.search(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", text))
 
 
 def _tokens(value: str) -> tuple[str, ...]:
@@ -95,35 +101,47 @@ def expand_scientific_queries(
 
     synonyms: list[str] = []
     for concept, alternatives in _CONTROLLED_TERMS.items():
-        if concept in lowered:
+        if _contains_phrase(lowered, concept):
             synonyms.extend((concept, *alternatives))
     if synonyms:
         synonym_clause = " OR ".join(f'"{item}"' for item in dict.fromkeys(synonyms))
         candidates.append(
             ExpandedQuery(
-                f"({thematic}) ({synonym_clause})"[:300],
+                f"({thematic}) ({synonym_clause})",
                 "SYNONYMS",
                 "Expansão por sinônimos biomédicos do vocabulário local auditável.",
             )
         )
 
-    mesh_terms = [
-        descriptor
+    mesh_concepts = [
+        (phrase, descriptor)
         for phrase, descriptor in _MESH_DESCRIPTORS.items()
-        if phrase in lowered
+        if _contains_phrase(lowered, phrase)
     ]
-    if mesh_terms:
+    # A expressão específica já cobre a genérica (prostate cancer/cancer).
+    mesh_concepts = [(phrase, descriptor) for phrase, descriptor in mesh_concepts
+                     if not any(phrase != other and _contains_phrase(other, phrase)
+                                for other, _ in mesh_concepts)]
+    if mesh_concepts:
+        clauses = []
+        for phrase, descriptor in dict.fromkeys(mesh_concepts):
+            entry_terms = (phrase, *_CONTROLLED_TERMS.get(phrase, ()))
+            text_terms = " OR ".join(
+                f'"{term}"[Title/Abstract]' for term in dict.fromkeys(entry_terms)
+            )
+            clauses.append(f'("{descriptor}"[MeSH Terms] OR {text_terms})')
         candidates.append(
             ExpandedQuery(
-                " AND ".join(f'"{term}"' for term in dict.fromkeys(mesh_terms))[:300],
+                " AND ".join(clauses),
                 "MESH_CANDIDATES",
-                "Descritores MeSH candidatos; o PubMed aplica seu mapeamento automático.",
+                "Descritores MeSH explícitos combinados a termos de título/resumo; "
+                "a consulta temática separada preserva o Automatic Term Mapping.",
             )
         )
 
     candidates.append(
         ExpandedQuery(
-            f"({thematic}) (systematic review OR meta-analysis)"[:300],
+            f"({thematic}) (systematic review OR meta-analysis)",
             "EVIDENCE_SYNTHESIS",
             "Busca direcionada a revisões sistemáticas e meta-análises.",
         )
@@ -246,3 +264,95 @@ class ClaimRelevanceReranker:
             )
         )
         return tuple(ranked)
+
+
+class BiomedicalReranker(Protocol):
+    name: str
+
+    def score(self, query: str, documents: Sequence[str]) -> Sequence[float]: ...
+
+
+class MedCptCrossEncoderReranker:
+    """Cross-encoder oficial do NCBI, carregado somente quando o shadow é executado."""
+
+    name = "ncbi/MedCPT-Cross-Encoder"
+
+    def __init__(self, model_name: str = name) -> None:
+        self.name = model_name
+        self._torch = self._tokenizer = self._model = None
+
+    def _load(self) -> None:
+        if self._model is not None:
+            return
+        try:
+            import torch
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        except ImportError as error:
+            raise RuntimeError(
+                "torch e transformers são necessários para o reranker MedCPT."
+            ) from error
+        try:
+            self._tokenizer = AutoTokenizer.from_pretrained(self.name)
+            self._model = AutoModelForSequenceClassification.from_pretrained(self.name)
+            self._model.eval()
+            self._torch = torch
+        except Exception as error:
+            raise RuntimeError("Não foi possível carregar o reranker MedCPT.") from error
+
+    def score(self, query: str, documents: Sequence[str]) -> tuple[float, ...]:
+        if not query.strip() or not documents:
+            return ()
+        self._load()
+        scores = []
+        for start in range(0, len(documents), 16):
+            pairs = [[query, document] for document in documents[start:start + 16]]
+            encoded = self._tokenizer(
+                pairs, truncation=True, padding=True, return_tensors="pt", max_length=512,
+            )
+            with self._torch.no_grad():
+                logits = self._model(**encoded).logits.squeeze(dim=1)
+            scores.extend(float(value) for value in logits.cpu().tolist())
+        return tuple(scores)
+
+
+def biomedical_shadow_ranking(
+    query: str,
+    works: Sequence[ScientificWork],
+    reranker: BiomedicalReranker,
+    *,
+    top_n: int = 50,
+) -> dict[str, object]:
+    """Calcula um ranking alternativo sem alterar aceitação, ordem ou resposta ao usuário."""
+
+    if top_n < 1:
+        raise ValueError("top_n deve ser positivo.")
+    candidates = tuple(works[:top_n])
+    started = perf_counter()
+    scores = tuple(float(value) for value in reranker.score(
+        query, [work.title for work in candidates]
+    ))
+    if len(scores) != len(candidates) or not all(math.isfinite(score) for score in scores):
+        raise RuntimeError("O reranker retornou quantidade inesperada de scores.")
+    indexed = list(enumerate(zip(candidates, scores), start=1))
+    ranked = sorted(indexed, key=lambda item: (-item[1][1], item[1][0].title.casefold()))
+    new_rank = {old_rank: rank
+                for rank, (old_rank, _) in enumerate(ranked, start=1)}
+    return {
+        "status": "available",
+        "mode": "shadow",
+        "model_name": reranker.name,
+        "document_scope": "title_only",
+        "evaluated_count": len(candidates),
+        "duration_ms": round((perf_counter() - started) * 1000, 2),
+        "ranking": [
+            {
+                "title": work.title,
+                "doi": work.doi,
+                "pmid": work.pmid,
+                "baseline_rank": old_rank,
+                "shadow_rank": new_rank[old_rank],
+                "score": score,
+            }
+            for old_rank, (work, score) in indexed
+        ],
+    }

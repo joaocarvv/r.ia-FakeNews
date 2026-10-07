@@ -53,6 +53,7 @@ class ArticleContent:
     access_level: str
     pubmed_url: str
     pmc_url: str | None
+    parser_version: str = "unknown"
 
 
 def _element_text(element: ET.Element | None) -> str:
@@ -291,4 +292,5 @@ def retrieve_article_content(publication: Publication, client: PmcClient) -> Art
         access_level="FULL_TEXT" if full_text else "ABSTRACT_ONLY",
         pubmed_url=publication.url,
         pmc_url=f"https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/" if pmcid else None,
+        parser_version="ncbi-xml-v1",
     )

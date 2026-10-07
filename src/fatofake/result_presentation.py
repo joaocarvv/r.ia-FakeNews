@@ -83,7 +83,7 @@ def _interpretation(status: str, direct_count: int, abstract_count: int) -> str:
 
 
 def _finding(
-    article: Mapping[str, Any], assessment: Mapping[str, Any]
+    article: Mapping[str, Any], assessment: Mapping[str, Any], claim: str | None = None
 ) -> dict[str, Any]:
     evidence = assessment.get("evidence") or {}
     retrieval = article.get("retrieval") or {}
@@ -97,6 +97,9 @@ def _finding(
     relation = str(assessment.get("relation") or "UNCERTAIN").upper()
     scope = str(evidence.get("content_scope") or article.get("access_level") or "UNKNOWN")
     return {
+        "compared_claim": assessment.get("claim") or claim,
+        "pmid": article.get("pmid"),
+        "model_name": assessment.get("model_name"),
         "relation": relation,
         "relation_label": _RELATION_LABELS.get(relation, "Inconclusivo"),
         "article_title": article.get("title") or "Artigo sem título",
@@ -183,7 +186,7 @@ def build_user_summary(result: Mapping[str, Any]) -> dict[str, Any]:
 
     relation_order = {"CONTRADICTS": 0, "SUPPORTS": 1, "NEUTRAL": 2, "UNCERTAIN": 3}
     findings = [
-        _finding(article, assessment)
+        _finding(article, assessment, claim)
         for article, assessment in rows
     ]
     findings.sort(
@@ -194,7 +197,12 @@ def build_user_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         )
     )
 
-    caveats = [
+    retrieval_notices = list(dict.fromkeys(
+        passage["retrieval_notice"]
+        for article in articles for passage in (article.get("analyzed_passages") or ())
+        if isinstance(passage, Mapping) and passage.get("retrieval_notice")
+    ))
+    caveats = retrieval_notices + [
         "O resultado mede compatibilidade com os trechos recuperados, não verdade médica."
     ]
     if submitted_scope in {"ABSTRACT", "ABSTRACT_ONLY"}:
@@ -231,10 +239,10 @@ def build_user_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     submitted_reading = _SCOPE_LABELS.get(
         submitted_scope, submitted_scope.replace("_", " ").lower()
     )
+    manual = (result.get("search") or {}).get("mode") == "MANUAL"
     independent_reading = (
-        "Foi recuperado 1 artigo independente"
-        if len(articles) == 1
-        else f"Foram recuperados {len(articles)} artigos independentes"
+        f"Foram escolhidos {len(articles)} artigos para comparação manual"
+        if manual else f"Foram recuperados {len(articles)} artigos para comparação"
     )
     compared_verb = "foi comparado" if assessed_count == 1 else "foram comparados"
     submitted_prefix = (

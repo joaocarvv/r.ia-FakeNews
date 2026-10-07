@@ -307,7 +307,7 @@ def deduplicate_works(
     return tuple(work for _, work in merged)
 
 
-_PUBMED_TAG_PATTERN = re.compile(r"\[(filter|sb|mesh[^\]]*|tiab|pt|majr)\]", re.IGNORECASE)
+_PUBMED_TAG_PATTERN = re.compile(r"\[(filter|sb|mesh[^\]]*|tiab|title/abstract|pt|majr)\]", re.IGNORECASE)
 
 
 def uses_pubmed_syntax(query: str) -> bool:

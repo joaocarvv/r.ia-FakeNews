@@ -75,6 +75,7 @@ class ExtractedClaim:
     page: int | None = None
     profile: ClaimProfile | None = None
     edited: bool = False
+    user_supplied: bool = False
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,9 @@ class ResolvedArticleDocument:
     publication_types: tuple[str, ...] = ()
     source_url: str | None = None
     identity_verification: IdentityVerification | None = None
+    pmcid: str | None = None
+    content_source_url: str | None = None
+    parser_version: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -137,6 +141,9 @@ class PreparedArticle:
                 "doi": resolved.doi,
                 "text": resolved.text,
                 "pmid": resolved.pmid,
+                "pmcid": resolved.pmcid,
+                "content_source_url": resolved.content_source_url,
+                "parser_version": resolved.parser_version,
                 "parser_name": resolved.parser_name,
                 "page_count": resolved.page_count,
                 "pages": [
@@ -163,6 +170,8 @@ class PreparedArticle:
                     {
                         "claim_id": claim.claim_id,
                         "text": claim.text,
+                        "user_supplied": claim.user_supplied,
+                        "edited": claim.edited,
                         "search_query": claim.search_query,
                         "quote": claim.quote,
                         "section": claim.section,
@@ -203,6 +212,9 @@ class PreparedArticle:
                 doi=resolved_data.get("doi"),
                 text=resolved_data.get("text") or "",
                 pmid=resolved_data.get("pmid"),
+                pmcid=resolved_data.get("pmcid"),
+                content_source_url=resolved_data.get("content_source_url"),
+                parser_version=resolved_data.get("parser_version") or "unknown",
                 parser_name=resolved_data.get("parser_name") or "persisted",
                 page_count=resolved_data.get("page_count"),
                 pages=tuple(
@@ -229,6 +241,8 @@ class PreparedArticle:
                 section=item.get("section"),
                 page=item.get("page"),
                 profile=ClaimProfile.from_payload(item.get("profile")),
+                user_supplied=bool(item.get("user_supplied")),
+                edited=bool(item.get("edited")),
             )
             for item in extracted_data.get("claims") or ()
         )
@@ -420,6 +434,9 @@ class PubMedReferenceResolver:
             publication_types=publication.publication_types,
             source_url=publication.url,
             identity_verification=identity,
+            pmcid=content.pmcid,
+            content_source_url=content.pmc_url if content.full_text else content.pubmed_url,
+            parser_version=content.parser_version,
         )
 
 
@@ -802,6 +819,7 @@ class ArticleFirstAnalysisRunner:
         claim_structurer: GeminiClaimStructurer | None = None,
         open_access_resolver: OpenAccessArticleResolver | None = None,
         pubmed_only: bool = False,
+        structured_search: Any | None = None,
     ) -> None:
         self.extractor = extractor
         self.evidence_runner = evidence_runner
@@ -811,6 +829,11 @@ class ArticleFirstAnalysisRunner:
         self.claim_structurer = claim_structurer
         self.open_access_resolver = open_access_resolver
         self.pubmed_only = pubmed_only
+        self.structured_search = structured_search
+
+    @property
+    def assess_methodology(self) -> bool:
+        return bool(getattr(self.evidence_runner, "assess_methodology", False))
 
     @staticmethod
     def _submitted_population(whole_article_analysis: Mapping[str, Any] | None) -> list[str]:
@@ -852,6 +875,7 @@ class ArticleFirstAnalysisRunner:
             "section": claim.section,
             "page": claim.page,
             "edited": claim.edited,
+            "user_supplied": claim.user_supplied,
             "profile": claim.profile.to_payload() if claim.profile else None,
         }
 
@@ -868,6 +892,7 @@ class ArticleFirstAnalysisRunner:
         payload = {
             "title": extracted.title,
             "doi": extracted.doi,
+            "pmid": resolved.pmid if resolved else None,
             "primary_claim": active_claim.text,
             "active_claim_id": active_claim.claim_id,
             "search_query": active_claim.search_query,
@@ -909,6 +934,9 @@ class ArticleFirstAnalysisRunner:
         status, label = assessment_by_direction.get(
             direction, assessment_by_direction["NEUTRAL"]
         )
+        if (result.get("search") or {}).get("mode") == "MANUAL":
+            label = label.replace("independentes", "selecionados")
+
         result["article_assessment"] = {
             "status": status,
             "label": label,
@@ -945,7 +973,7 @@ class ArticleFirstAnalysisRunner:
         verification["indicators"] = build_verification_indicators(
             articles=tuple(result.get("articles") or ()),
             research_context=extracted.research_context,
-            assess_methodology=False,
+            assess_methodology=self.assess_methodology,
         )
         if extracted.research_context != "CLINICAL":
             verification["clinical_trials"] = {
@@ -1004,13 +1032,13 @@ class ArticleFirstAnalysisRunner:
         result["user_summary"] = build_user_summary(result)
         return result
 
-    def prepare_article(self, submission: ArticleSubmission) -> PreparedArticle:
+    def prepare_article(self, submission: ArticleSubmission, *, resolved_document=None) -> PreparedArticle:
         with logged_step(
             logger,
             "article_resolution",
             source_type=submission.reference_type or submission.mime_type,
         ) as step:
-            resolved = (
+            resolved = resolved_document or (
                 self.reference_resolver.resolve(submission)
                 if self.reference_resolver is not None
                 else None
@@ -1051,6 +1079,7 @@ class ArticleFirstAnalysisRunner:
                 page_count=parsed.page_count,
                 pages=tuple(getattr(parsed, "pages", ()) or ()),
                 content_scope="LOCAL_PDF_FULL_TEXT",
+                parser_version="liteparse-adapter-v1",
             )
         with logged_step(logger, "claim_extraction") as step:
             extracted = self.extractor.extract(submission, resolved)
@@ -1058,8 +1087,8 @@ class ArticleFirstAnalysisRunner:
             step["research_context"] = extracted.research_context
         with logged_step(logger, "article_dossier") as step:
             dossier = build_article_dossier(
-                title=extracted.title,
-                doi=extracted.doi,
+                title=resolved.title if resolved else None,
+                doi=resolved.doi if resolved else None,
                 pmid=resolved.pmid if resolved else None,
                 authors=resolved.authors if resolved else (),
                 journal=resolved.journal if resolved else None,
@@ -1172,6 +1201,7 @@ class ArticleFirstAnalysisRunner:
         prepared: PreparedArticle,
         selected_claims: tuple[ExtractedClaim, ...] | None = None,
         depth: str = "QUICK",
+        comparison_documents=None,
     ) -> Mapping[str, Any]:
         submission = prepared.submission
         resolved = prepared.resolved
@@ -1193,24 +1223,55 @@ class ArticleFirstAnalysisRunner:
                 "independent_evidence",
                 claim_id=claim.claim_id,
             ) as step:
-                claim_result = dict(
-                    self.evidence_runner.analyze(
-                        claim.text,
-                        None,
-                        excluded_dois=excluded,
-                        query_override=claim.search_query,
-                        related_seed_pmids=(
-                            (resolved.pmid,) if resolved and resolved.pmid else ()
-                        ),
-                        seed_doi=extracted.doi,
-                        seed_authors=resolved.authors if resolved else (),
-                        search_queries=search_queries,
-                        depth=depth,
-                        claim_profile=(
-                            claim.profile.to_payload() if claim.profile else None
-                        ),
+                if comparison_documents is not None:
+                    from .manual_comparison import compare_documents
+                    claim_result = compare_documents(
+                        self.evidence_runner, claim.text, comparison_documents,
+                        claim.profile.to_payload() if claim.profile else None,
                     )
-                )
+                else:
+                    claim_result = dict(
+                        self.evidence_runner.analyze(
+                            claim.text,
+                            None,
+                            excluded_dois=excluded,
+                            query_override=claim.search_query,
+                            related_seed_pmids=(
+                                (resolved.pmid,) if resolved and resolved.pmid else ()
+                            ),
+                            seed_doi=extracted.doi,
+                            seed_authors=resolved.authors if resolved else (),
+                            search_queries=search_queries,
+                            depth=depth,
+                            claim_profile=(
+                                claim.profile.to_payload() if claim.profile else None
+                            ),
+                        )
+                    )
+                if self.structured_search is not None:
+                    try:
+                        claim_result["structured_search"] = self.structured_search.search(
+                            claim.text,
+                            limit=5,
+                        ).to_dict()
+                    except Exception as error:
+                        logger.warning(
+                            "Busca estruturada indisponível para %s: %s",
+                            claim.claim_id,
+                            error,
+                            exc_info=True,
+                        )
+                        claim_result["structured_search"] = {
+                            "claim": claim.text,
+                            "entities": {"genes": [], "variants": []},
+                            "gene_records": [],
+                            "clinvar_records": [],
+                            "failures": [{
+                                "source": "NCBI Gene/ClinVar",
+                                "query": claim.text,
+                                "reason": str(error),
+                            }],
+                        }
                 step["article_count"] = len(claim_result.get("articles") or ())
             submitted_population = self._submitted_population(whole_article_analysis)
             if submitted_population and claim_result.get("weighted_evidence") is not None:
@@ -1230,7 +1291,7 @@ class ArticleFirstAnalysisRunner:
                             for source in (article.get("retrieval") or {}).get("sources") or ()
                         )
                     ),
-                    assess_methodology=False,
+                    assess_methodology=self.assess_methodology,
                 )
             with logged_step(
                 logger,

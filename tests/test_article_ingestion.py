@@ -201,7 +201,7 @@ class ArticleIngestionTests(unittest.TestCase):
         )
         self.assertEqual(
             result["article_dossier"]["methodology"]["classification_source"],
-            "GEMINI_FALLBACK",
+            "UNRESOLVED",
         )
         self.assertEqual(
             result["article_dossier"]["identity"]["status"],

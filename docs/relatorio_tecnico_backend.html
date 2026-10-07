@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Relatório Técnico — Desenvolvimento do Backend Fato ou Fake?</title>
+<style>
+  @page { size: A4; margin: 2.4cm 2.2cm 2.2cm 2.4cm; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #1f2933; font-size: 11pt; line-height: 1.48; margin: 0; }
+  h1 { color: #173f35; font-size: 22pt; margin: 0 0 14pt; }
+  h2 { color: #1f5b4b; font-size: 16pt; margin: 22pt 0 8pt; border-bottom: 1px solid #a8c8bf; padding-bottom: 4pt; }
+  h3 { color: #244f45; font-size: 13pt; margin: 17pt 0 6pt; }
+  h4 { color: #374151; font-size: 11.5pt; margin: 12pt 0 4pt; }
+  p { margin: 0 0 8pt; text-align: justify; }
+  ul, ol { margin: 4pt 0 10pt 20pt; }
+  li { margin-bottom: 4pt; }
+  table { width: 100%; border-collapse: collapse; margin: 9pt 0 14pt; font-size: 9.5pt; }
+  th { background: #1f5b4b; color: white; text-align: left; padding: 6pt; border: 1px solid #547f73; }
+  td { padding: 6pt; border: 1px solid #b9c8c3; vertical-align: top; }
+  tr:nth-child(even) td { background: #f3f7f5; }
+  code { font-family: Menlo, Consolas, monospace; font-size: 9.3pt; background: #eef2f1; padding: 1pt 3pt; }
+  .cover { min-height: 24cm; display: flex; flex-direction: column; justify-content: center; text-align: center; page-break-after: always; }
+  .cover h1 { font-size: 29pt; color: #17493c; }
+  .cover h2 { border: 0; font-size: 17pt; font-weight: normal; color: #47655d; }
+  .cover .meta { margin-top: 52pt; color: #4b5563; text-align: center; }
+  .page-break { page-break-before: always; }
+  .callout { background: #edf6f2; border-left: 5px solid #2f7d68; padding: 10pt 12pt; margin: 10pt 0 14pt; }
+  .warning { background: #fff7e6; border-left-color: #b7791f; }
+  .small { font-size: 9pt; color: #56616d; }
+  .score { font-weight: bold; color: #17493c; white-space: nowrap; }
+  .toc a { color: #1f5b4b; text-decoration: none; }
+  .toc li { margin-bottom: 6pt; }
+  .flow { font-family: Menlo, Consolas, monospace; white-space: pre-wrap; background: #f4f6f5; border: 1px solid #c9d3cf; padding: 12pt; font-size: 9.4pt; line-height: 1.5; }
+  .signature { margin-top: 36pt; text-align: center; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div>
+    <p style="text-align:center; letter-spacing:2px; color:#658078;">RELATÓRIO TÉCNICO</p>
+    <h1>Desenvolvimento do Backend<br>Fato ou Fake?</h1>
+    <h2>Arquitetura, etapas de implementação, dificuldades e evolução metodológica</h2>
+    <div class="meta">
+      <p style="text-align:center;"><strong>Projeto de residência — evidências científicas em saúde</strong></p>
+      <p style="text-align:center;">Escopo atual: MVP PubMed/PMC orientado a evidências</p>
+      <p style="text-align:center;">Branch analisada: <code>refactor/pubmed-only-mvp</code></p>
+      <p style="text-align:center;">7 de outubro de 2026</p>
+    </div>
+  </div>
+</section>
+
+<h1>Sumário executivo</h1>
+
+<p>O backend do projeto <strong>Fato ou Fake?</strong> foi desenvolvido para transformar uma alegação de saúde ou um artigo científico em uma análise rastreável de evidências. O objetivo técnico não é declarar automaticamente que uma afirmação é “verdadeira” ou “falsa”, mas recuperar literatura científica, localizar trechos verificáveis, comparar esses trechos com a alegação, registrar limitações e apresentar uma síntese explicável.</p>
+
+<p>O desenvolvimento começou como uma prova de conceito centrada em notebook e evoluiu para um conjunto modular de serviços Python, uma API HTTP assíncrona em Flask, persistência em SQLite, ingestão de artigos e documentos, integração com PubMed/PMC e Gemini, mecanismos de recuperação e reranking, síntese metodológica e observabilidade. A implementação atual contém <strong>254 testes automatizados</strong> aprovados e foi validada também por uma execução real completa do pipeline.</p>
+
+<div class="callout">
+  <strong>Decisão metodológica central.</strong> O sistema deixou de tratar a tarefa como classificação binária de “fato” ou “fake”. A saída passou a separar: (1) cobertura da busca; (2) compatibilidade dos trechos com a alegação; e (3) triagem metodológica. Essa mudança reduz a falsa precisão e permite abstenção quando o material recuperado é insuficiente.
+</div>
+
+<h2>Estrutura do relatório</h2>
+<ol class="toc">
+  <li>Objetivo, escopo e critérios de avaliação</li>
+  <li>Arquitetura atual do backend</li>
+  <li>Linha do tempo do desenvolvimento em 13 etapas</li>
+  <li>Evolução metodológica</li>
+  <li>Dificuldades técnicas e soluções adotadas</li>
+  <li>Validação, testes e observabilidade</li>
+  <li>Limitações atuais e riscos</li>
+  <li>Próximos passos recomendados</li>
+  <li>Conclusão</li>
+</ol>
+
+<h2>1. Objetivo, escopo e critérios de avaliação</h2>
+
+<h3>1.1 Objetivo do backend</h3>
+<p>O backend recebe uma alegação textual, um PMID/DOI/link do PubMed ou um arquivo PDF/imagem. A partir dessa entrada, ele valida e normaliza os dados, recupera o conteúdo científico disponível, extrai alegações, planeja consultas, encontra artigos independentes, seleciona trechos relevantes, classifica sua relação com a alegação e produz um resultado estruturado.</p>
+
+<h3>1.2 Escopo atual</h3>
+<ul>
+  <li>Descoberta bibliográfica e metadados: PubMed.</li>
+  <li>Texto integral automatizado: PubMed Central (PMC), quando disponível.</li>
+  <li>Fallback declarado: abstract do PubMed.</li>
+  <li>Entrada documental: PDF, PNG, JPEG e WebP.</li>
+  <li>Modelo generativo: Gemini para estruturação, classificação textual e síntese.</li>
+  <li>Persistência: SQLite com journal em modo WAL.</li>
+  <li>API e interface: Flask, com processamento assíncrono em <code>ThreadPoolExecutor</code>.</li>
+  <li>Implantação prevista: Docker e Gunicorn; observabilidade opcional com Grafana, Loki e Alloy.</li>
+</ul>
+
+<h3>1.3 Escala usada para pontuar as etapas</h3>
+<table>
+  <tr><th>Pontuação</th><th>Interpretação da dificuldade</th><th>Critério</th></tr>
+  <tr><td class="score">1/5</td><td>Baixa</td><td>Alteração localizada, poucos componentes e baixo risco de regressão.</td></tr>
+  <tr><td class="score">2/5</td><td>Moderada-baixa</td><td>Integração simples ou regra determinística bem delimitada.</td></tr>
+  <tr><td class="score">3/5</td><td>Moderada</td><td>Múltiplos módulos, contratos e testes, com risco controlável.</td></tr>
+  <tr><td class="score">4/5</td><td>Alta</td><td>Dependências externas, concorrência, dados heterogêneos ou decisões metodológicas relevantes.</td></tr>
+  <tr><td class="score">5/5</td><td>Muito alta</td><td>Orquestração ponta a ponta, segurança científica, rastreabilidade e vários modos de falha.</td></tr>
+</table>
+
+<div class="page-break"></div>
+<h2>2. Arquitetura atual do backend</h2>
+
+<div class="flow">Entrada do usuário
+      ↓
+Validação e normalização
+      ↓
+Job assíncrono persistido em SQLite
+      ↓
+Leitura do artigo / extração de alegações
+      ↓
+Planejamento e expansão da busca
+      ↓
+PubMed → metadados e artigos relacionados
+PMC → texto completo ou abstract identificado
+      ↓
+Chunking rastreável + recuperação BM25
+      ↓
+Gemini → compatibilidade textual + linha metodológica
+      ↓
+Síntese ponderada e indicadores separados
+      ↓
+Relatório JSON / Markdown / interface web</div>
+
+<h3>2.1 Componentes principais</h3>
+<table>
+  <tr><th>Camada</th><th>Responsabilidade</th><th>Módulos principais</th></tr>
+  <tr><td>API HTTP</td><td>Rotas, validação do protocolo, status, erros seguros, readiness e exportação.</td><td><code>api.py</code>, <code>web_ui.py</code>, <code>wsgi.py</code></td></tr>
+  <tr><td>Orquestração</td><td>Execução assíncrona, transições de estado, processamento de alegações e artigos.</td><td><code>analysis_service.py</code>, <code>article_ingestion.py</code>, <code>retrieval_preview.py</code></td></tr>
+  <tr><td>Fontes científicas</td><td>Busca, metadados, abstracts e texto PMC.</td><td><code>pubmed.py</code>, <code>pmc.py</code>, <code>federated_search.py</code></td></tr>
+  <tr><td>Recuperação</td><td>Chunking, busca lexical, semântica/híbrida e reranking.</td><td><code>chunking.py</code>, <code>retrieval.py</code>, <code>semantic_retrieval.py</code>, <code>hybrid_retrieval.py</code></td></tr>
+  <tr><td>Análise</td><td>Classificação da relação, PICO, risco de viés, evidências e dossiê.</td><td><code>gemini_evidence.py</code>, <code>whole_article_analysis.py</code>, <code>article_profile.py</code></td></tr>
+  <tr><td>Síntese</td><td>Ponderação, certeza estimada, indicadores e narrativa ao usuário.</td><td><code>evidence_table.py</code>, <code>verification_cards.py</code>, <code>result_presentation.py</code></td></tr>
+  <tr><td>Infraestrutura</td><td>Contêiner, logs estruturados, health/readiness e dashboards.</td><td><code>Dockerfile</code>, <code>docker-compose.yml</code>, <code>structured_logging.py</code></td></tr>
+</table>
+
+<h3>2.2 Estados do processamento</h3>
+<p>Os jobs percorrem estados explícitos: <code>QUEUED</code>, <code>RUNNING</code>, <code>AWAITING_CLAIM_SELECTION</code>, <code>RESEARCHING</code>, <code>SUCCEEDED</code> e <code>FAILED</code>. As transições são monotônicas e protegidas por lock. Após uma reinicialização, trabalhos que estavam em execução são finalizados com o código <code>APPLICATION_RESTARTED</code>, evitando jobs indefinidamente presos.</p>
+
+<h3>2.3 Contrato HTTP principal</h3>
+<table>
+  <tr><th>Endpoint</th><th>Função</th></tr>
+  <tr><td><code>GET /api/v1/health</code></td><td>Liveness simples do processo.</td></tr>
+  <tr><td><code>GET /api/v1/ready</code></td><td>Prontidão local: banco e executor.</td></tr>
+  <tr><td><code>POST /api/v1/pubmed-search</code></td><td>Busca temática paginada no PubMed.</td></tr>
+  <tr><td><code>POST /api/v1/analyses</code></td><td>Cria análise a partir de uma alegação.</td></tr>
+  <tr><td><code>POST /api/v1/article-analyses</code></td><td>Cria análise a partir de referência ou arquivo.</td></tr>
+  <tr><td><code>GET /api/v1/analyses/{id}</code></td><td>Consulta status ou resultado completo.</td></tr>
+  <tr><td><code>POST /api/v1/article-analyses/{id}/claims</code></td><td>Seleciona alegações para investigação.</td></tr>
+  <tr><td><code>GET /api/v1/analyses/{id}/report.md</code></td><td>Exporta relatório rastreável em Markdown.</td></tr>
+</table>
+
+<div class="page-break"></div>
+<h2>3. Linha do tempo do desenvolvimento</h2>
+
+<h3>Etapa 1 — Prova de conceito e validação da entrada</h3>
+<p><span class="score">Dificuldade: 2/5</span></p>
+<p><strong>Implementação.</strong> O primeiro fluxo foi organizado em notebooks para validar alegações textuais, DOI/URL e preparação de consultas. A entrada passou a ter limites de tamanho, normalização de espaços e rejeição de referências inválidas.</p>
+<p><strong>Dificuldade.</strong> A principal dificuldade foi impedir que entradas livres fossem confundidas com referências válidas ou comandos. O sistema precisou diferenciar alegação, DOI, URL e ausência de referência sem “adivinhar” a intenção.</p>
+<p><strong>Mudança metodológica.</strong> A alegação passou a ser tratada como objeto de análise, não como pergunta respondida diretamente pelo modelo. Essa separação criou a base para busca científica reproduzível.</p>
+
+<h3>Etapa 2 — Integração com PubMed e PMC</h3>
+<p><span class="score">Dificuldade: 4/5</span></p>
+<p><strong>Implementação.</strong> Foram criados clientes para ESearch, ESummary, ELink e recuperação de abstracts/texto completo. Metadados foram normalizados em entidades internas, com PMID, DOI, título, autores, periódico, tipos de publicação e URLs.</p>
+<p><strong>Dificuldade.</strong> As respostas do NCBI variam conforme o registro. Alguns artigos não possuem abstract, outros não estão no PMC, e erros transitórios ou limites da API precisam ser tratados sem fabricar conteúdo.</p>
+<p><strong>Mudança metodológica.</strong> O sistema adotou hierarquia explícita de acesso: texto completo PMC primeiro; abstract como fallback identificado; metadados isolados nunca são tratados como evidência textual.</p>
+
+<h3>Etapa 3 — Chunking e rastreabilidade dos trechos</h3>
+<p><span class="score">Dificuldade: 3/5</span></p>
+<p><strong>Implementação.</strong> O conteúdo foi dividido em chunks com sobreposição, identificador estável, seção, página quando disponível e URL de origem. Seções de Resultados e Conclusão receberam prioridade na seleção.</p>
+<p><strong>Dificuldade.</strong> Era necessário manter contexto suficiente sem enviar artigos inteiros desnecessariamente ao modelo. XML, HTML e PDF possuem estruturas diferentes e muitas fontes não fornecem paginação física.</p>
+<p><strong>Mudança metodológica.</strong> Toda evidência passou a exigir proveniência. Quando a página não existe na fonte, o sistema declara “página não disponível”, em vez de estimá-la.</p>
+
+<h3>Etapa 4 — Recuperação lexical, semântica e híbrida</h3>
+<p><span class="score">Dificuldade: 4/5</span></p>
+<p><strong>Implementação.</strong> Foram implementados BM25, embeddings multilíngues e combinação por Reciprocal Rank Fusion (RRF). O ranking registra a contribuição de cada método e mantém desempate determinístico.</p>
+<p><strong>Dificuldade.</strong> Scores lexicais e vetoriais não são diretamente comparáveis. Somá-los produziria uma escala arbitrária. Também houve o desafio de cruzar alegações em português com literatura majoritariamente em inglês.</p>
+<p><strong>Mudança metodológica.</strong> A fusão passou a usar posições, não soma de scores. No runtime atual, o caminho principal é conservador e privilegia BM25 sobre trechos reais; tradução de consulta usa modelo local quando disponível e Gemini como fallback.</p>
+
+<h3>Etapa 5 — Classificação de compatibilidade</h3>
+<p><span class="score">Dificuldade: 5/5</span></p>
+<p><strong>Implementação.</strong> Cada trecho é classificado como <code>SUPPORTS</code>, <code>CONTRADICTS</code>, <code>NEUTRAL</code> ou <code>UNCERTAIN</code>. A resposta conserva justificativa, modelo, confiança textual, trecho literal, seção, página e identificador.</p>
+<p><strong>Dificuldade.</strong> A classe “apoia” poderia ser indevidamente interpretada como “a alegação é verdadeira”. Além disso, modelos podem produzir citações inexistentes ou relacionar um trecho correto ao estudo errado.</p>
+<p><strong>Mudança metodológica.</strong> A confiança passou a significar apenas segurança da classificação textual. Relações diretas sem citação literal localizada são automaticamente invalidadas e rebaixadas para <code>UNCERTAIN</code>.</p>
+
+<h3>Etapa 6 — Síntese por artigo e segurança científica</h3>
+<p><span class="score">Dificuldade: 5/5</span></p>
+<p><strong>Implementação.</strong> As evidências são primeiro agregadas dentro de cada artigo e somente depois combinadas no corpus. Artigos retratados não recebem peso; estudos com evidência exclusivamente incerta não sustentam conclusão; conflitos são preservados.</p>
+<p><strong>Dificuldade.</strong> Contar trechos como votos supervaloriza artigos longos e repetições internas. Contar artigos sem considerar desenho ou independência também cria falsa robustez.</p>
+<p><strong>Mudança metodológica.</strong> A unidade primária de agregação tornou-se o artigo. Estudos da mesma população dividem peso, e o artigo submetido não é contado como confirmação independente de si mesmo.</p>
+
+<h3>Etapa 7 — Qualidade, retratação, AMSTAR 2 e explicabilidade</h3>
+<p><span class="score">Dificuldade: 5/5</span></p>
+<p><strong>Implementação.</strong> Foram adicionados desenho do estudo, retratação, protocolo, disponibilidade de dados, AMSTAR 2 para revisões e geração de relatório explicável.</p>
+<p><strong>Dificuldade.</strong> Qualidade metodológica não pode ser reduzida a uma pontuação única. Instrumentos como AMSTAR 2, RoB 2, ROBINS-I e GRADE têm regras próprias, dependem do desenho e normalmente exigem revisão humana.</p>
+<p><strong>Mudança metodológica.</strong> O sistema abandonou a ideia de “nota universal de qualidade”. Falhas críticas e incertezas são categóricas e explicadas. Na versão atual, a avaliação automática é rotulada como <em>triagem metodológica</em>, não aplicação formal validada.</p>
+
+<h3>Etapa 8 — Orquestração multiartigo e API assíncrona</h3>
+<p><span class="score">Dificuldade: 4/5</span></p>
+<p><strong>Implementação.</strong> O pipeline foi encapsulado em serviços Python e exposto por API Flask. Jobs passaram a ser processados em background, com polling, progresso, erros seguros e persistência.</p>
+<p><strong>Dificuldade.</strong> Uma análise pode levar dezenas ou centenas de segundos. Executá-la na requisição bloquearia o servidor. Também foi necessário garantir transições válidas e impedir que exceções internas ou segredos fossem expostos.</p>
+<p><strong>Mudança metodológica.</strong> O resultado passou a registrar o estado da execução e suas falhas. “Não foi possível analisar” tornou-se diferente de “não existe evidência”.</p>
+
+<h3>Etapa 9 — Pesquisa adversarial e regras de abstenção</h3>
+<p><span class="score">Dificuldade: 4/5</span></p>
+<p><strong>Implementação.</strong> Foram modelados papéis de pesquisador, crítico e árbitro determinístico. O árbitro verifica proveniência e impede a promoção de relatórios insuficientes.</p>
+<p><strong>Dificuldade.</strong> Uma segunda chamada de IA não valida automaticamente a primeira. Sem regras determinísticas, múltiplos agentes podem apenas repetir o mesmo erro.</p>
+<p><strong>Mudança metodológica.</strong> A crítica passou a ser evidência de revisão, não prova de correção. A decisão final de aceitar citações e promover uma conclusão fica sujeita a regras verificáveis.</p>
+
+<h3>Etapa 10 — Busca federada e posterior redução para PubMed-only</h3>
+<p><span class="score">Dificuldade: 5/5</span></p>
+<p><strong>Implementação.</strong> O projeto chegou a integrar PubMed, OpenAlex, SciELO via OpenAlex, Europe PMC e fontes auxiliares. Foram criadas normalização, deduplicação por DOI/PMID/metadados e proveniência por fonte.</p>
+<p><strong>Dificuldade.</strong> Cada base tem cobertura, licenças, esquemas e disponibilidade diferentes. Mesclar resultados aumenta recall, mas também ruído, duplicidade e dificuldade de reprodução.</p>
+<p><strong>Mudança metodológica.</strong> Para o MVP de demonstração, o runtime foi reduzido ao ecossistema PubMed/PMC. A decisão trocou amplitude por reprodutibilidade, clareza de proveniência e menor superfície de falhas. Os conectores históricos foram preservados no código para evolução futura.</p>
+
+<h3>Etapa 11 — Ingestão de artigos, PDF e múltiplas alegações</h3>
+<p><span class="score">Dificuldade: 5/5</span></p>
+<p><strong>Implementação.</strong> O backend passou a aceitar PMID, DOI, link PubMed, PDF e imagem. PDFs são processados localmente pelo LiteParse. O artigo é transformado em dossiê e até quatro alegações atômicas, que podem ser editadas e selecionadas antes da investigação.</p>
+<p><strong>Dificuldade.</strong> Documentos digitalizados, PDFs sem camada de texto, páginas mal estruturadas e artigos sem acesso completo exigem caminhos de fallback. Alegações múltiplas não podem compartilhar resultados indiscriminadamente.</p>
+<p><strong>Mudança metodológica.</strong> Cada alegação tornou-se uma unidade independente de busca, contagem, evidência e conclusão. A seleção humana foi inserida entre leitura e pesquisa para reduzir investigação de afirmações irrelevantes.</p>
+
+<h3>Etapa 12 — Indicadores separados e dossiê determinístico</h3>
+<p><span class="score">Dificuldade: 4/5</span></p>
+<p><strong>Implementação.</strong> A interface e o contrato JSON passaram a separar cobertura da busca, compatibilidade das evidências e confiança metodológica. Foi criada uma ficha do artigo com identidade, status editorial, desenho, amostra, protocolo, financiamento, conflitos e dados.</p>
+<p><strong>Dificuldade.</strong> Um percentual geral parecia intuitivo, mas misturava cobertura, concordância e qualidade. Também existia o risco de o modelo preencher campos ausentes com inferências plausíveis.</p>
+<p><strong>Mudança metodológica.</strong> O “índice geral de verdade” foi removido. A classificação do desenho segue precedência determinística: <code>PublicationType</code> do PubMed, identificador de ensaio, declaração explícita, metadados documentais e somente então fallback do modelo.</p>
+
+<h3>Etapa 13 — Robustez operacional e triagem metodológica da demonstração</h3>
+<p><span class="score">Dificuldade: 4/5</span></p>
+<p><strong>Implementação.</strong> O limite HTTP foi ajustado para comportar arquivos de 25 MiB em Base64; conexões SQLite passaram a ser fechadas explicitamente; jobs interrompidos são finalizados após reinício; foi criado endpoint de readiness; e a tradução passou a usar Gemini quando os modelos locais não estão instalados.</p>
+<p><strong>Dificuldade.</strong> A interface anunciava 25 MiB, mas o envelope HTTP aceitava apenas 15 MiB; Base64 amplia o arquivo em cerca de 33%. Os testes também revelaram conexões SQLite não fechadas. No ambiente local, Python 3.14 não possuía os pacotes pesados de tradução, embora o projeto tenha sido definido para Python 3.11.</p>
+<p><strong>Mudança metodológica.</strong> Para a apresentação, <code>ASSESS_METHODOLOGY=true</code> ativa comparabilidade PICO, risco de viés por domínio e certeza estimada. A interface usa os termos “triagem automatizada” e “certeza estimada”, preservando o caráter de apoio à revisão.</p>
+
+<div class="page-break"></div>
+<h2>4. Evolução metodológica</h2>
+
+<table>
+  <tr><th>Questão</th><th>Abordagem inicial</th><th>Abordagem escolhida</th><th>Motivo</th></tr>
+  <tr><td>Saída principal</td><td>Classificação próxima de verdadeiro/falso.</td><td>Compatibilidade, divergência, contexto ou inconclusão.</td><td>Evitar transformar recuperação textual em juízo de verdade.</td></tr>
+  <tr><td>Confiança</td><td>Percentual geral.</td><td>Cobertura, compatibilidade e metodologia separadas.</td><td>Evitar falsa precisão e denominadores ocultos.</td></tr>
+  <tr><td>Unidade de síntese</td><td>Trechos como votos.</td><td>Agregação por artigo e depois por corpus.</td><td>Impedir que um artigo longo domine o resultado.</td></tr>
+  <tr><td>Texto analisado</td><td>Abstract como fonte principal.</td><td>Texto completo prioritário; abstract identificado como fallback.</td><td>Melhor contexto e transparência sobre o alcance da leitura.</td></tr>
+  <tr><td>Citações</td><td>Trecho retornado pelo modelo.</td><td>Trecho deve existir literalmente no passage_id indicado.</td><td>Reduzir citações fabricadas ou deslocadas.</td></tr>
+  <tr><td>Qualidade</td><td>Nota numérica genérica.</td><td>Triagem por desenho, PICO, risco de viés, acesso e status editorial.</td><td>Qualidade é multidimensional e depende do desenho.</td></tr>
+  <tr><td>Evidência duplicada</td><td>Cada publicação contava separadamente.</td><td>Mesma coorte/registro divide peso; artigo enviado não confirma a si mesmo.</td><td>Evitar dupla contagem e falsa independência.</td></tr>
+  <tr><td>Retratação</td><td>Penalidade numérica.</td><td>Exclusão do peso e alerta crítico.</td><td>Retratação não deve ser diluída em uma média.</td></tr>
+  <tr><td>Ausência</td><td>“Sem evidência”.</td><td>Separação entre não encontrado, encontrado mas indireto e análise indisponível.</td><td>Busca limitada não prova inexistência.</td></tr>
+  <tr><td>Fontes</td><td>Expansão federada ampla.</td><td>PubMed/PMC no MVP.</td><td>Reprodutibilidade e clareza para a demonstração.</td></tr>
+</table>
+
+<h3>4.1 Modelo de ponderação</h3>
+<p>Quando a triagem metodológica está ativa, cada estudo recebe peso composto por desenho, comparabilidade PICO, risco de viés, nível de acesso ao conteúdo e situação editorial. A fórmula é multiplicativa: uma limitação grave reduz o peso mesmo que os demais fatores sejam favoráveis. Isso evita que quantidade de artigos seja confundida com força da evidência.</p>
+
+<h3>4.2 Certeza estimada</h3>
+<p>A certeza começa mais alta quando a maior parte do peso vem de ensaios randomizados e mais baixa quando predomina evidência observacional. Pode ser rebaixada por risco de viés alto/incerto, inconsistência, evidência indireta e imprecisão. Trata-se de uma <strong>aproximação inspirada no GRADE</strong>, não de uma aplicação formal ou clinicamente validada.</p>
+
+<h3>4.3 Papel da revisão humana</h3>
+<p>O usuário revisa as alegações extraídas, pode editar o texto e escolhe quais afirmações investigar. Resultados metodológicos devem ser conferidos nos trechos e, em contexto profissional, revisados com os instrumentos adequados ao desenho do estudo.</p>
+
+<div class="page-break"></div>
+<h2>5. Dificuldades técnicas e soluções adotadas</h2>
+
+<table>
+  <tr><th>Dificuldade</th><th>Impacto potencial</th><th>Solução adotada</th><th>Situação</th></tr>
+  <tr><td>Artigo sem texto completo no PMC</td><td>Análise incompleta ou falha de ingestão.</td><td>Abstract identificado como fallback e opção de envio do PDF.</td><td>Mitigado, não eliminado.</td></tr>
+  <tr><td>Heterogeneidade das fontes</td><td>Campos ausentes, duplicidade e erros de identidade.</td><td>Normalização, chaves DOI/PMID e proveniência por fonte.</td><td>Controlado no escopo PubMed-only.</td></tr>
+  <tr><td>Citação não localizada</td><td>Conclusão baseada em texto inexistente.</td><td>Validação literal contra o passage_id; rebaixamento para incerto.</td><td>Implementado.</td></tr>
+  <tr><td>Tradução português–inglês</td><td>Baixo recall no PubMed.</td><td>Modelo local preferido; Gemini como fallback; consulta original preservada.</td><td>Implementado.</td></tr>
+  <tr><td>Tempo de processamento</td><td>Timeout e interface bloqueada.</td><td>Jobs assíncronos, polling e dois workers internos.</td><td>Adequado à demonstração.</td></tr>
+  <tr><td>Queda durante um job</td><td>Status eternamente em execução.</td><td>Jobs interrompidos viram falha recuperável no startup.</td><td>Implementado.</td></tr>
+  <tr><td>Conexões SQLite abertas</td><td>Vazamento de recursos em execução prolongada.</td><td>Context manager que fecha explicitamente cada conexão.</td><td>Corrigido.</td></tr>
+  <tr><td>Upload Base64</td><td>Arquivo abaixo do limite visual rejeitado pelo servidor.</td><td>Envelope HTTP de 36 MiB para arquivo bruto de 25 MiB.</td><td>Corrigido.</td></tr>
+  <tr><td>Erro externo ou resposta parcial</td><td>Interrupção completa da análise.</td><td>Timeouts, tentativas, isolamento por etapa e erros seguros.</td><td>Implementado.</td></tr>
+  <tr><td>Falsa confiança metodológica</td><td>Uso clínico indevido.</td><td>Rótulos de triagem, certeza estimada, motivos e limitações explícitas.</td><td>Mitigado; requer validação humana.</td></tr>
+</table>
+
+<h2>6. Validação, testes e observabilidade</h2>
+
+<h3>6.1 Testes automatizados</h3>
+<p>A suíte atual possui <strong>254 testes</strong>, executados com <code>unittest</code>. Ela cobre validação, PubMed, PMC, chunking, recuperação, classificação, síntese, ingestão, seleção de alegações, persistência, API, relatórios, indicadores, leitura de artigos e ferramentas complementares.</p>
+
+<h3>6.2 Teste real após as melhorias</h3>
+<p>Uma análise real da alegação “Regular aerobic exercise reduces HbA1c in adults with type 2 diabetes” concluiu com sucesso em aproximadamente 27 segundos. Foram recuperados seis artigos, cinco foram analisados e dois possuíam texto completo. Os cinco artigos avaliados produziram campos de comparabilidade PICO e risco de viés; a certeza estimada foi baixa, demonstrando comportamento conservador diante de informação metodológica limitada.</p>
+
+<h3>6.3 Observabilidade</h3>
+<ul>
+  <li>Logs JSON estruturados por requisição, análise e etapa.</li>
+  <li><code>request_id</code> e <code>analysis_id</code> para correlação.</li>
+  <li>Duração, status e tipo de erro por etapa.</li>
+  <li>Rotação de arquivo e integração prevista com Loki/Grafana via Alloy.</li>
+  <li>Liveness separado de readiness para distinguir processo ativo de serviço pronto.</li>
+</ul>
+
+<h2>7. Limitações atuais e riscos</h2>
+
+<div class="callout warning">
+  <strong>Limitação científica.</strong> Os testes demonstram comportamento de software, não acurácia clínica. Ainda não existe conjunto de ground truth suficiente para medir recall, precisão, calibração do risco de viés ou concordância com revisores especialistas.
+</div>
+
+<ol>
+  <li><strong>Cobertura bibliográfica.</strong> O runtime atual consulta PubMed/PMC e pode omitir estudos relevantes de outras bases.</li>
+  <li><strong>Texto integral.</strong> Muitos artigos não estão no PMC. Nesses casos, o sistema depende do abstract ou do PDF enviado.</li>
+  <li><strong>Triagem metodológica.</strong> O modelo avalia apenas os trechos fornecidos. “Incerto” é a resposta correta quando detalhes de métodos não aparecem.</li>
+  <li><strong>Dependência externa.</strong> PubMed e Gemini podem apresentar indisponibilidade, mudança de contrato, timeout ou cota.</li>
+  <li><strong>Escalabilidade.</strong> Dois workers internos e um processo Gunicorn são suficientes para demonstração, não para alta concorrência.</li>
+  <li><strong>Ambiente local.</strong> A máquina atual executa Python 3.14, enquanto a imagem Docker fixa Python 3.11. O fallback Gemini reduz a dependência dos modelos locais, mas o contêiner continua sendo o ambiente reproduzível recomendado.</li>
+  <li><strong>Privacidade.</strong> Artigos, alegações e resultados persistidos exigem política de retenção e controle de acesso antes de exposição pública.</li>
+</ol>
+
+<h2>8. Próximos passos recomendados</h2>
+
+<table>
+  <tr><th>Prioridade</th><th>Próximo passo</th><th>Resultado esperado</th></tr>
+  <tr><td>Alta</td><td>Criar corpus de avaliação com alegações, estudos relevantes e julgamentos de especialistas.</td><td>Medir Recall@K, Precision@K, concordância e abstenção correta.</td></tr>
+  <tr><td>Alta</td><td>Comparar a triagem de risco de viés com dois revisores independentes.</td><td>Estimar confiabilidade e identificar domínios frágeis.</td></tr>
+  <tr><td>Alta</td><td>Preparar roteiro controlado da apresentação com artigos PMC conhecidos.</td><td>Reduzir dependência de disponibilidade externa durante a banca.</td></tr>
+  <tr><td>Média</td><td>Adicionar autenticação e separação por usuário.</td><td>Proteger dados caso o sistema seja publicado.</td></tr>
+  <tr><td>Média</td><td>Migrar jobs para fila durável caso haja múltiplos processos.</td><td>Retomada, escalabilidade e isolamento operacional.</td></tr>
+  <tr><td>Média</td><td>Reintroduzir fontes externas de forma configurável e avaliada.</td><td>Aumentar cobertura sem perder rastreabilidade.</td></tr>
+  <tr><td>Baixa para a demo</td><td>Aprimorar rate limits e cache distribuído.</td><td>Melhor comportamento em produção concorrente.</td></tr>
+</table>
+
+<h2>9. Conclusão</h2>
+
+<p>O backend evoluiu de uma prova de conceito para uma aplicação modular, testável e rastreável. A principal contribuição não é apenas a integração com bases e modelos, mas a definição de limites científicos claros: conteúdo não recuperado não é inventado; citação não localizada não sustenta relação direta; retratação não é diluída em pontuação; ausência de resultado não equivale a ausência de evidência; e a avaliação metodológica automatizada é apresentada como triagem.</p>
+
+<p>Para a residência, o sistema está adequado como demonstração técnica de engenharia de dados científicos, integração de APIs, processamento assíncrono, recuperação de informação e IA explicável. A continuidade natural do trabalho é deixar de validar somente regras de software e medir o desempenho científico com um conjunto de referência e revisão especializada.</p>
+
+<h2>Referências técnicas do projeto</h2>
+<ul>
+  <li><code>README.md</code> — escopo, instalação e uso.</li>
+  <li><code>docs/fluxo-mvp.md</code> — evolução e validações por etapa.</li>
+  <li><code>docs/fluxo-backend-mermaid.md</code> — arquitetura do backend.</li>
+  <li><code>src/fatofake/api.py</code> — API, jobs e persistência.</li>
+  <li><code>src/fatofake/retrieval_preview.py</code> — composição do runtime PubMed/PMC.</li>
+  <li><code>src/fatofake/article_ingestion.py</code> — ingestão e fluxo orientado ao artigo.</li>
+  <li><code>src/fatofake/gemini_evidence.py</code> — classificação e campos metodológicos.</li>
+  <li><code>src/fatofake/evidence_table.py</code> — ponderação e certeza estimada.</li>
+  <li><code>src/fatofake/verification_cards.py</code> — indicadores separados.</li>
+  <li><code>tests/</code> — suíte automatizada.</li>
+  <li><code>notebooks/01</code> a <code>notebooks/30</code> — validações incrementais e auditáveis.</li>
+</ul>
+
+<p class="small">Documento gerado a partir do código, da documentação e do histórico Git disponíveis em 7 de outubro de 2026. As pontuações de dificuldade são avaliações técnicas qualitativas para fins de relato do desenvolvimento.</p>
+
+</body>
+</html>

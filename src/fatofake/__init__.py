@@ -138,6 +138,12 @@ from .search_preparation import (
     SearchPreparationError,
     prepare_search_plan,
 )
+from .structured_sources import (
+    NCBIStructuredSearch,
+    StructuredSearchResult,
+    StructuredSourceError,
+    extract_biomedical_entities,
+)
 from .scientific_search import (
     ClaimRelevanceReranker,
     ExpandedQuery,
@@ -272,6 +278,10 @@ __all__ = [
     "ReviewStatus",
     "SearchPlan",
     "SearchPreparationError",
+    "NCBIStructuredSearch",
+    "StructuredSearchResult",
+    "StructuredSourceError",
+    "extract_biomedical_entities",
     "SourceAuditConfig",
     "SourceAuditReport",
     "SourceAuditResult",

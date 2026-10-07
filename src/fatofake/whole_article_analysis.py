@@ -282,7 +282,8 @@ class GeminiWholeArticleAnalyzer:
                 "em limitations, retorne uma lista vazia. Não julgue qualidade metodológica, risco de viés ou validade das conclusões.",
             )
             prompt += (
-                " Em study copie valores literais no idioma original; use 'Não informado' "
+                " Em strengths, red_flags e internal_consistency não produza julgamentos; "
+                "deixe esses campos vazios. Em study copie valores literais no idioma original; use 'Não informado' "
                 "quando não houver trecho explícito. Traduções e resumos ficam nos campos narrativos."
             )
         return prompt
@@ -410,14 +411,53 @@ class GeminiWholeArticleAnalyzer:
         if not assess_methodology:
             decoded["limitations"] = []
             decoded["methodology_assessment"] = "NOT_EVALUATED"
-            study = decoded.get("study") or {}
+            study = {
+                field: value for field, value in (decoded.get("study") or {}).items()
+                if field in {"design", "population", "sample_size", "intervention_or_exposure",
+                             "comparator", "follow_up", "cohort_or_dataset", "outcomes",
+                             "statistical_methods", "registration_ids"}
+            }
             source = " ".join(resolved.text.split()) if resolved else ""
             for field in ("design", "population", "sample_size", "intervention_or_exposure", "comparator", "follow_up", "cohort_or_dataset"):
                 value = " ".join(str(study.get(field) or "").split())
-                study[field] = value if value and value in source else "Não informado"
+                study[field] = value if value and value in source and value != "Não informado" else None
             for field in ("outcomes", "statistical_methods", "registration_ids"):
                 study[field] = [value for value in study.get(field) or () if isinstance(value, str) and value and " ".join(value.split()) in source]
+            field_sources = {}
+            for field, values in study.items():
+                for value in (values if isinstance(values, list) else [values]):
+                    if not isinstance(value, str) or not value:
+                        continue
+                    sections = resolved.sections if resolved else ()
+                    origin = next(((title, body) for title, body in sections
+                                   if value in " ".join(body.split())), None)
+                    body = " ".join(origin[1].split()) if origin else source
+                    index = body.find(value)
+                    excerpt = body[max(0, index - 100):index + len(value) + 100]
+                    field_sources.setdefault(field, []).append({
+                        "text": value, "quote": excerpt, "source": "EXPLICIT_TEXT",
+                        "section": origin[0] if origin else None,
+                        "source_url": resolved.source_url if resolved else None,
+                        "page": self._page_for_quote(value, resolved),
+                    })
             decoded["study"] = study
+            decoded["study_field_sources"] = field_sources
+            decoded["strengths"] = []
+            decoded["red_flags"] = []
+            decoded["internal_consistency"] = {}
+            for field in ("main_findings", "authors_declared_limitations", "section_summaries"):
+                decoded[field] = [item for item in decoded.get(field) or ()
+                                  if any(c.get("verified") for c in item.get("citations") or ())]
+                for item in decoded[field]:
+                    item["citations"] = [c for c in item["citations"] if c.get("verified")]
+            for field in ("funding", "conflicts_of_interest"):
+                block = decoded.get(field) or {}
+                citations = [c for c in block.get("citations") or () if c.get("verified")]
+                statement = " ".join(str(block.get("statement") or "").split())
+                decoded[field] = (
+                    {**block, "statement": statement, "citations": citations}
+                    if citations and statement and statement in source else {}
+                )
         decoded["coverage"] = self._coverage(decoded, resolved)
         decoded["model_name"] = self.gateway.model_name
         return decoded

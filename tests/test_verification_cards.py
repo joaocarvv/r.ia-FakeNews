@@ -80,6 +80,34 @@ class VerificationCardsTests(unittest.TestCase):
         self.assertEqual(methodology["retracted_count"], 1)
         self.assertNotIn("score", methodology)
 
+    def test_methodological_triage_uses_risk_of_bias_and_protocol(self):
+        result = build_verification_indicators(
+            research_context="CLINICAL",
+            articles=({
+                "access_level": "FULL_TEXT",
+                "assessments": [{
+                    "relation": "SUPPORTS",
+                    "study_row": {
+                        "rob_overall": "LOW",
+                        "registration_ids": ["NCT00000001"],
+                    },
+                }],
+                "quality": {
+                    "level": "NOT_ASSESSED",
+                    "study_design": "RANDOMIZED_CLINICAL_TRIAL",
+                    "is_retracted": False,
+                    "trial_registrations": [],
+                    "datasets": [],
+                },
+            },),
+            assess_methodology=True,
+        )
+
+        methodology = result["methodological_confidence"]
+        self.assertEqual(methodology["level"], "HIGH")
+        self.assertEqual(methodology["registered_protocol_count"], 1)
+        self.assertIn("triagem automatizada", methodology["explanation"])
+
     def test_unassessed_retrieval_never_invents_a_percentage(self):
         result = build_unassessed_cards(
             claim="A vitamina C reduz resfriados?",

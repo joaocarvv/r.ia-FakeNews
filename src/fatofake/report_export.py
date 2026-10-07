@@ -67,18 +67,26 @@ def _dossier(report: Mapping[str, Any]) -> list[str]:
         "| --- | --- |",
     ]
     for label, key in (
-        ("Desenho", "design"),
+        ("Desenho declarado no texto", "design"),
         ("População", "population"),
         ("Amostra", "sample_size"),
         ("Intervenção/exposição", "intervention_or_exposure"),
         ("Comparador", "comparator"),
         ("Seguimento", "follow_up"),
     ):
-        lines.append(f"| {label} | {_cell(study.get(key))} |")
-    lines.append(f"| Desfechos | {_cell('; '.join(study.get('outcomes') or ()))} |")
-    lines.append(
-        f"| Métodos estatísticos | {_cell('; '.join(study.get('statistical_methods') or ()))} |"
-    )
+        if study.get(key) and study[key] != "Não informado":
+            lines.append(f"| {label} | {_cell(study[key])} |")
+    if study.get("outcomes"):
+        lines.append(f"| Desfechos | {_cell('; '.join(study['outcomes']))} |")
+    if study.get("statistical_methods"):
+        lines.append(f"| Métodos estatísticos | {_cell('; '.join(study['statistical_methods']))} |")
+    lines.append("")
+    for key, sources in (report.get("study_field_sources") or {}).items():
+        for origin in sources:
+            location = origin.get("section") or ""
+            if origin.get("page"):
+                location += f" p. {origin['page']}"
+            lines.append(f"> {key}: “{_text(origin.get('quote'))}” — {location}")
     lines.append("")
     if report.get("main_findings"):
         lines += ["### Resultados principais", ""]
@@ -123,6 +131,16 @@ def _claim(index: int, analysis: Mapping[str, Any]) -> list[str]:
         f"## Alegação {index}: {_text(claim.get('text'))}",
         "",
     ]
+    notices = list(dict.fromkeys(
+        passage["retrieval_notice"]
+        for article in result.get("articles") or ()
+        for passage in article.get("analyzed_passages") or ()
+        if passage.get("retrieval_notice")
+    ))
+    if notices:
+        lines += [f"> {_text(notice)}" for notice in notices] + [""]
+    if claim.get("user_supplied"):
+        lines += ["_Alegação adicionada pelo usuário; sem atribuição automática aos autores._", ""]
     if claim.get("quote"):
         location = ", ".join(
             part for part in (claim.get("section") or "", f"p. {claim['page']}" if claim.get("page") else "") if part
@@ -163,7 +181,7 @@ def _claim(index: int, analysis: Mapping[str, Any]) -> list[str]:
             ]
             if methodology_assessed
             else [
-                "| Ano | Estudo | Desenho declarado | População (n) | Efeito | Relação textual |",
+                "| Ano | Estudo | Tipo informado / declaração | População (n) | Efeito | Relação textual |",
                 "| --- | --- | --- | --- | --- | --- |",
             ]
         )
@@ -177,8 +195,12 @@ def _claim(index: int, analysis: Mapping[str, Any]) -> list[str]:
             cells = [
                 _cell(row.get("year")),
                 study,
-                _cell(row.get("design_label")),
-                _cell(f"{row.get('population') or 'Não informado'} ({row.get('sample_size') or '?'})"),
+                _cell(row.get("design_label")) if methodology_assessed else _cell(
+                    "; ".join(row.get("publication_types") or ()) +
+                    (" · PubMed, PublicationType" if row.get("publication_types_source") else "") +
+                    (f" · declaração no texto: {row['design_detail']}" if row.get("design_detail") else "")
+                ),
+                _cell("; ".join(filter(None, [row.get("population"), row.get("sample_size")]))),
                 _cell(row.get("effect_estimate")),
                 _cell(RELATION_LABELS.get(row.get("relation"), row.get("relation"))),
             ]
@@ -237,13 +259,21 @@ def render_markdown_report(job: Mapping[str, Any]) -> str:
         "",
         f"- Análise: `{job.get('analysis_id')}`",
         f"- Fonte: {_text((result.get('input') or {}).get('source') or job.get('article_reference'))}",
-        f"- DOI: {_text(submitted.get('doi'))}",
+        *([f"- DOI: {_text(submitted['doi'])}"] if submitted.get("doi") else []),
         f"- Gerado em: {_text(job.get('updated_at'))}",
         "",
         "> Este relatório mede compatibilidade entre alegações e literatura recuperada. "
         "Não é diagnóstico, não substitui revisão sistemática e pode conter erros do modelo.",
         "",
     ]
+    structured = (result.get("article_dossier") or {}).get("structured_fields") or {}
+    if structured:
+        lines += ["## Metadados informados pela API", ""]
+        for field, origin in structured.items():
+            value = origin.get("value")
+            rendered = "; ".join(map(str, value)) if isinstance(value, list) else _text(value)
+            lines.append(f"- {field}: {rendered} — {origin.get('source')}, campo {origin.get('field')}")
+        lines.append("")
     if result.get("whole_article_analysis"):
         lines += _dossier(result["whole_article_analysis"])
     for index, analysis in enumerate(result.get("claim_analyses") or (), start=1):

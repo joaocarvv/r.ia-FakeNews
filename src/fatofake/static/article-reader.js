@@ -57,7 +57,7 @@
       card.append(element('span', 'ALEGAÇÃO EXTRAÍDA', 'kicker'));
       card.append(element('p', editor?.value || claim?.text || claim?.quote || ''));
       const actions = element('div', '', 'popover-actions');
-      if (currentJob?.status !== 'SUCCEEDED' && toggle && editor) {
+      if (toggle && editor) {
         const select = action(toggle.checked ? 'Remover da seleção' : 'Selecionar alegação', () => {
           if (researchSelected.disabled) return;
           toggle.checked = !toggle.checked; toggle.dispatchEvent(new Event('change', {bubbles: true}));
@@ -67,16 +67,17 @@
           closeClaimPopover(); editor.scrollIntoView({block: 'center', behavior: 'smooth'}); editor.focus();
         }), action('Investigar esta alegação', () => {
           if (researchSelected.disabled) return;
-          closeClaimPopover(); startResearch([{claim_id: id, text: editor.value.trim()}]);
+          closeClaimPopover(); startResearch([{claim_id: id, text: editor.value.trim(), ...(claim?.user_supplied ? {source:'USER'} : {})}]);
         }));
-      } else {
+      }
+      {
         const analyses = (currentJob?.result?.claim_analyses || []).filter(item => item.status === 'SUCCEEDED' && item.result);
         const index = analyses.findIndex(item => item.claim_id === id || item.claim?.claim_id === id);
         if (index >= 0) actions.append(action('Ver comparação', () => {
           closeClaimPopover(); document.querySelectorAll('#claim-tabs button')[index]?.click();
           document.getElementById('result').scrollIntoView({behavior: 'smooth'});
         }));
-        else actions.append(element('small', 'Este trecho permanece disponível para consulta no artigo.'));
+        else actions.append(element('small', 'Selecione esta alegação na lista para investigar.'));
       }
       card.append(actions); popup.append(card);
     });
@@ -149,7 +150,7 @@
     if (!text.trim()) status.textContent = 'Não há texto extraído disponível para exibir. As alegações podem ser revisadas na lista.';
     const completed = currentJob?.status === 'SUCCEEDED';
     reader.classList.toggle('reader-completed', completed);
-    reader.open = !completed;
+    reader.open = true;
   }
   window.loadArticleReader = async (job, force = false) => {
     currentJob = job; reader.hidden = false; retry.hidden = true;

@@ -90,6 +90,14 @@ WEB_UI_HTML = r"""<!doctype html>
     .indicator-card h3 { margin: 7px 0 8px; }
     .indicator-card p { margin: 0; color: var(--muted); font-size: .87rem; }
     .indicator-note { grid-column: 1 / -1; margin: -4px 2px 0; color: var(--muted); font-size: .8rem; }
+    .structured-search { margin: 0 0 20px; padding: 22px 24px; }
+    .structured-search-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .structured-search-card { padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcf9; }
+    .structured-search-card h4 { margin: 0 0 8px; color: var(--brand-dark); }
+    .structured-search-card p { margin: 5px 0; }
+    .structured-search-record { padding: 9px 0; border-top: 1px solid var(--line); font-size: .84rem; }
+    .structured-search-record:first-child { border-top: 0; padding-top: 0; }
+    .structured-search-empty { color: var(--muted); font-size: .84rem; }
     .stack { display: grid; gap: 16px; margin-top: 20px; }
     .alert-list { display: grid; gap: 10px; padding: 0; list-style: none; }
     .alert-item { padding: 12px 14px; border-left: 4px solid var(--accent); border-radius: 8px; background: #fff8e9; }
@@ -250,6 +258,7 @@ WEB_UI_HTML = r"""<!doctype html>
     <nav class="side-nav">
       <button type="button" data-entry="search" class="nav-item is-active"><span aria-hidden="true">⌕</span>Pesquisar artigos</button>
       <button type="button" data-entry="link" class="nav-item"><span aria-hidden="true">▤</span>Analisar um artigo</button>
+      <a href="#article-library" id="library-open" class="nav-item"><span data-icon="library" aria-hidden="true"></span>Minha biblioteca</a>
       <button type="button" id="guide-open" class="nav-item"><span aria-hidden="true">ⓘ</span>Como funciona</button>
     </nav>
     <div class="sidebar-note"><span class="small-label">FONTES DE PESQUISA</span><div class="source-logos"><span>PubMed</span><span>PMC</span></div><p>Artigos, trechos e fontes disponíveis para você conferir.</p></div>
@@ -386,6 +395,10 @@ WEB_UI_HTML = r"""<!doctype html>
       </div>
       <div id="error" role="alert"></div>
 
+    <section id="claim-pipeline" class="panel" hidden>
+      <div class="actions"><strong>Alegações deste artigo</strong><button id="save-current-article" type="button" class="secondary">Guardar na biblioteca</button></div>
+      <div id="claim-pipeline-tabs" class="claim-tabs" aria-label="Navegação entre alegações"></div>
+    </section>
     <details id="source-reader" class="panel source-reader" hidden open>
       <summary>Artigo fonte e alegações marcadas</summary>
       <div class="reader-heading"><div><div class="kicker">TEXTO ORIGINAL</div><h2 id="reader-title">Artigo enviado</h2><p id="reader-scope" class="article-meta"></p></div><span class="reader-legend"><mark>Trecho de origem</mark> Passe o mouse ou toque para explorar.</span></div>
@@ -427,6 +440,20 @@ WEB_UI_HTML = r"""<!doctype html>
       <h2 id="claim-review-title">Escolha quais alegações investigar</h2>
       <p class="review-intro">Confira as afirmações e os trechos de origem. Você pode corrigir o texto e escolher o que deseja comparar com outras pesquisas.</p>
       <div id="review-claims" class="review-list"></div>
+      <div class="actions"><button id="add-custom-claim" type="button" class="secondary">Adicionar minha alegação</button><button id="select-all-claims" type="button" class="secondary">Selecionar todas</button><button id="clear-claim-selection" type="button" class="secondary">Limpar seleção</button></div>
+      <fieldset class="comparison-picker">
+        <legend>Artigos usados na comparação</legend>
+        <label><input type="radio" name="comparison-mode" value="AUTOMATIC" checked style="width:auto"> Buscar no PubMed</label>
+        <label><input type="radio" name="comparison-mode" value="MANUAL" style="width:auto"> Comparar com artigos que eu escolher</label>
+        <div id="manual-comparison-fields" hidden>
+          <label for="comparison-references">Referências para comparar (uma por linha)</label>
+          <textarea id="comparison-references" placeholder="PMID, link do PubMed ou DOI"></textarea>
+          <label for="comparison-files">Adicionar PDFs de comparação</label>
+          <input id="comparison-files" type="file" accept="application/pdf" multiple>
+          <p id="manual-comparison-selected" class="hint">Você também pode escolher artigos da biblioteca abaixo.</p>
+          <a href="#article-library">Escolher artigos da biblioteca</a>
+        </div>
+      </fieldset>
       <div class="depth-options" role="radiogroup" aria-label="Profundidade da busca">
         <label class="depth-option"><input type="radio" name="depth" value="QUICK" checked><span><strong>Busca rápida</strong><span id="depth-quick-detail" class="article-meta"></span></span></label>
         <label class="depth-option"><input type="radio" name="depth" value="DEEP"><span><strong>Busca ampliada</strong><span id="depth-deep-detail" class="article-meta"></span></span></label>
@@ -438,6 +465,17 @@ WEB_UI_HTML = r"""<!doctype html>
       </div>
     </section>
 
+    <section id="article-library" class="panel" aria-labelledby="library-title" tabindex="-1">
+      <div class="library-heading"><div><div class="section-eyebrow">SEU ACERVO DE PESQUISA</div><h2 id="library-title">Minha biblioteca</h2></div><span id="library-count" class="library-count" aria-live="polite"></span></div>
+      <p class="hint">Artigos lidos ficam guardados nesta instalação, junto das análises. Busque no título, texto e notas ou escolha referências para comparar.</p>
+      <div class="actions"><input id="library-query" placeholder="Buscar na biblioteca" aria-label="Buscar na biblioteca"><button id="library-refresh" type="button" class="secondary">Buscar</button></div>
+      <details><summary>Guardar referências ou PDFs</summary>
+        <label for="library-references">Referências (uma por linha)</label><textarea id="library-references"></textarea>
+        <label for="library-files">PDFs</label><input id="library-files" type="file" accept="application/pdf" multiple>
+        <button id="library-add" type="button" class="secondary">Guardar artigos</button>
+      </details>
+      <p id="library-status" role="status" aria-live="polite"></p><div id="library-items" class="stack"></div>
+    </section>
     <section id="result" aria-live="polite">
       <div class="export-actions">
         <a id="export-markdown" href="#" download>Baixar relatório (Markdown)</a>
@@ -460,11 +498,18 @@ WEB_UI_HTML = r"""<!doctype html>
           <p id="compatibility-detail"></p>
         </article>
         <article class="panel indicator-card">
-          <div class="kicker">Transparência metodológica</div>
+          <div class="kicker">Dados e fontes</div>
           <h3 id="methodology-label"></h3>
           <p id="methodology-detail"></p>
         </article>
         <p class="indicator-note">A aplicação não atribui nota de qualidade metodológica nem probabilidade de o artigo estar correto.</p>
+      </section>
+      <section id="structured-search" class="panel structured-search" aria-labelledby="structured-search-title">
+        <div class="kicker">Pesquisa biomédica dinâmica</div>
+        <h3 id="structured-search-title">NCBI Gene e ClinVar</h3>
+        <p class="article-meta">Consulta acionada pela alegação atual. Estes registros são evidência estruturada auxiliar e não substituem os artigos do PubMed/PMC.</p>
+        <p id="structured-search-status" class="article-meta">Consultando fontes estruturadas…</p>
+        <div id="structured-search-grid" class="structured-search-grid"></div>
       </section>
       <section class="panel weighted" aria-labelledby="weighted-title">
         <div class="kicker">Balanço descritivo dos trechos</div>
@@ -488,6 +533,14 @@ WEB_UI_HTML = r"""<!doctype html>
         <div id="evidence-map" class="evidence-map"></div>
         <div class="map-legend" id="map-legend"></div>
       </section>
+      <section class="panel weighted" aria-labelledby="references-title">
+        <div class="kicker">Citações e bibliografias</div>
+        <h3 id="references-title">Relações entre os artigos</h3>
+        <p class="article-meta">Confira quais artigos referenciam outros deste conjunto e quais referências eles compartilham.</p>
+        <button type="button" class="secondary" id="reference-comparison-check">Verificar referências</button>
+        <p id="reference-comparison-status" role="status" aria-live="polite"></p>
+        <div id="reference-comparison-content"></div>
+      </section>
       <section class="panel weighted" aria-labelledby="updates-title">
         <div class="kicker">Atualização da literatura</div>
         <h3 id="updates-title">Novos estudos sobre esta alegação</h3>
@@ -504,7 +557,7 @@ WEB_UI_HTML = r"""<!doctype html>
         <h3 id="table-title">Tabela de evidências</h3>
         <p class="article-meta">Títulos, informações declaradas e trechos traduzidos para o português; o original permanece disponível para conferência. Qualidade metodológica e risco de viés não são avaliados automaticamente.</p>
         <div class="table-wrap"><table class="evidence-table"><thead><tr>
-          <th>Ano</th><th>Estudo</th><th>Desenho declarado</th><th>População (n)</th><th>Intervenção × comparador</th><th>Desfecho e efeito</th><th>Relação textual</th>
+          <th>Ano</th><th>Estudo</th><th>Tipo informado / declaração declarado</th><th>População (n)</th><th>Intervenção × comparador</th><th>Desfecho e efeito</th><th>Relação textual</th>
         </tr></thead><tbody id="evidence-rows"></tbody></table></div>
       </section>
       <div class="result-grid" style="margin-top: 20px">
@@ -601,6 +654,9 @@ WEB_UI_HTML = r"""<!doctype html>
     let activeEstimates = null;
     let activeTopicQuery = null;
     let activeTopicMode = null;
+    let pipelineBusy = false;
+    let pollGeneration = 0;
+    let structuredSearchGeneration = 0;
     const relationLabels = {SUPPORTS: 'Compatível', CONTRADICTS: 'Incompatível', NEUTRAL: 'Neutro', UNCERTAIN: 'Incerto', NOT_ASSESSED: 'Não lido'};
     const editorialLabels = {RETRACTED: 'Retratado', EXPRESSION_OF_CONCERN: 'Manifestação de preocupação', PREPRINT: 'Pré-publicação', CORRECTED: 'Com correção'};
     const statusLabels = {
@@ -694,15 +750,20 @@ WEB_UI_HTML = r"""<!doctype html>
 
       const study = report.study || {};
       const studyFields = [
-        ['Desenho', study.design], ['População', study.population], ['Amostra', study.sample_size],
+        ['Desenho declarado no texto', study.design], ['População', study.population], ['Amostra mencionada no texto', study.sample_size],
         ['Intervenção/exposição', study.intervention_or_exposure], ['Comparador', study.comparator],
         ['Seguimento', study.follow_up], ['Desfechos', (study.outcomes || []).join('; ')],
         ['Métodos estatísticos', (study.statistical_methods || []).join('; ')]
       ];
       const studyNode = document.getElementById('whole-study'); clearNode(studyNode);
-      studyFields.forEach(([label, value]) => {
+      const studySources = report.study_field_sources || {};
+      studyFields.filter(([, value]) => value && value !== 'Não informado').forEach(([label, value]) => {
         const field = document.createElement('div'); field.className = 'study-field';
-        addTextElement(field, 'strong', label); addTextElement(field, 'span', value || 'Não informado'); studyNode.appendChild(field);
+        addTextElement(field, 'strong', label); addTextElement(field, 'span', value);
+        Object.values(studySources).flat().filter(source => value.includes(source.text)).forEach(source => {
+          addTextElement(field, 'small', `Trecho: “${source.quote}”${source.section ? ` — ${sectionLabel(source.section)}` : ''}${source.page ? `, p. ${source.page}` : ''}`);
+        });
+        studyNode.appendChild(field);
       });
 
       const findings = document.getElementById('whole-findings'); clearNode(findings);
@@ -716,25 +777,13 @@ WEB_UI_HTML = r"""<!doctype html>
       });
 
       const critical = document.getElementById('whole-critical'); clearNode(critical);
-      const consistency = report.internal_consistency || {};
-      addTextElement(critical, 'strong', 'Coerência entre resultados e conclusão');
-      addTextElement(critical, 'p', `${consistency.status || 'Não avaliada'}: ${consistency.explanation || 'Sem explicação.'}`);
-      (consistency.citations || []).forEach(citation => addCitation(critical, citation));
-      addTextElement(critical, 'strong', 'Pontos fortes');
-      const strengths = document.createElement('ul'); (report.strengths || []).forEach(item => addTextElement(strengths, 'li', item)); critical.appendChild(strengths);
-      addTextElement(critical, 'strong', 'Limitações declaradas pelos autores');
+      if ((report.authors_declared_limitations || []).length) addTextElement(critical, 'strong', 'Limitações declaradas pelos autores');
       const declared = report.authors_declared_limitations || [];
-      if (!declared.length) addTextElement(critical, 'p', 'Os autores não declararam limitações no texto lido.');
+
       declared.forEach(item => {
         const block = document.createElement('div'); addTextElement(block, 'p', item.limitation);
         (item.citations || []).forEach(citation => addCitation(block, citation)); critical.appendChild(block);
       });
-      addTextElement(critical, 'strong', 'Limitações identificadas na leitura crítica');
-      const weaknesses = document.createElement('ul'); (report.limitations || []).forEach(item => addTextElement(weaknesses, 'li', item)); critical.appendChild(weaknesses);
-      if ((report.red_flags || []).length) {
-        addTextElement(critical, 'strong', 'Sinais de atenção');
-        const flags = document.createElement('ul'); (report.red_flags || []).forEach(item => addTextElement(flags, 'li', item)); critical.appendChild(flags);
-      }
 
       const tables = document.getElementById('whole-tables'); clearNode(tables);
       const described = report.tables_figures || [];
@@ -753,11 +802,11 @@ WEB_UI_HTML = r"""<!doctype html>
       const fundingStatus = {REPORTED: 'Financiamento declarado', NO_FUNDING_DECLARED: 'Declara não ter recebido financiamento', NOT_REPORTED: 'Financiamento não informado'};
       const conflictStatus = {DECLARED_NONE: 'Declara ausência de conflitos', DECLARED_PRESENT: 'Declara conflitos de interesse', NOT_REPORTED: 'Conflitos não informados'};
       const fundingBlock = report.funding || {}; const conflictBlock = report.conflicts_of_interest || {};
-      addTextElement(funding, 'strong', fundingStatus[fundingBlock.status] || 'Financiamento não avaliado');
+      if (fundingBlock.statement) addTextElement(funding, 'strong', 'Declaração de financiamento no texto');
       if (fundingBlock.statement) addTextElement(funding, 'p', fundingBlock.statement);
       if ((fundingBlock.sources || []).length) addTextElement(funding, 'p', `Fontes: ${fundingBlock.sources.join('; ')}`, 'article-meta');
       (fundingBlock.citations || []).forEach(citation => addCitation(funding, citation));
-      addTextElement(funding, 'strong', conflictStatus[conflictBlock.status] || 'Conflitos não avaliados');
+      if (conflictBlock.statement) addTextElement(funding, 'strong', 'Declaração de conflitos no texto');
       if (conflictBlock.statement) addTextElement(funding, 'p', conflictBlock.statement);
       (conflictBlock.citations || []).forEach(citation => addCitation(funding, citation));
 
@@ -778,7 +827,7 @@ WEB_UI_HTML = r"""<!doctype html>
       const verdict = weighted.verdict || {};
       document.getElementById('weighted-title').textContent = text(verdict.label || 'Balanço descritivo indisponível');
       const certainty = document.getElementById('weighted-certainty');
-      certainty.textContent = verdict.certainty_label ? `Certeza ${verdict.certainty_label.toLowerCase()}` : '';
+      certainty.textContent = verdict.certainty_label ? `Certeza estimada ${verdict.certainty_label.toLowerCase()}` : '';
       certainty.style.display = verdict.certainty_label ? 'inline-block' : 'none';
       document.getElementById('weighted-explanation').textContent = verdict.explanation || 'Esta execução não produziu a tabela padronizada.';
       const reasons = document.getElementById('certainty-reasons'); clearNode(reasons);
@@ -848,7 +897,7 @@ WEB_UI_HTML = r"""<!doctype html>
           tooltip.textContent = '';
           const title = document.createElement('strong'); title.textContent = `${row.year} · ${row.title_pt || row.title}`; tooltip.appendChild(title);
           const detail = document.createElement('div');
-          detail.textContent = `${relationLabels[row.relation] || row.relation} · ${row.design_label}${editorialLabels[row.editorial_status] ? ` · ${editorialLabels[row.editorial_status]}` : ''}`;
+          detail.textContent = [relationLabels[row.relation] || row.relation, row.publication_types_source ? (row.publication_types || []).join('; ') + ' · PubMed' : null, editorialLabels[row.editorial_status]].filter(Boolean).join(' · ');
           tooltip.appendChild(detail);
           const box = host.getBoundingClientRect(); const scale = box.width / width;
           tooltip.style.left = `${Math.min(box.width - 300, Math.max(0, cx * scale + 12))}px`; tooltip.style.top = `${cy * scale + 12}px`;
@@ -895,6 +944,9 @@ WEB_UI_HTML = r"""<!doctype html>
           input.addEventListener('change', () => input.files[0] && uploadStudyPdf(row.work_key, input.files[0], upload));
           upload.appendChild(input); study.appendChild(upload);
         }
+        if ((row.authors || []).length) addTextElement(study, 'span', `Autores: ${row.authors.join('; ')} · PubMed`, 'original');
+        const identifiers = [row.pmid ? `PMID ${row.pmid}` : null, row.doi ? `DOI ${row.doi}` : null, row.pmcid].filter(Boolean);
+        if (identifiers.length) addTextElement(study, 'span', identifiers.join(' · '), 'original');
         if (row.full_text_source) addTextElement(study, 'span', `Texto: ${row.full_text_source}`, 'original');
         if (row.assessed && !fullTextLevels.includes(row.access_level) && (row.full_text_attempts || []).length) {
           const last = row.full_text_attempts[row.full_text_attempts.length - 1];
@@ -916,13 +968,24 @@ WEB_UI_HTML = r"""<!doctype html>
           const sources = document.createElement('details');
           addTextElement(sources, 'summary', 'Fontes dos dados extraídos');
           Object.entries(row.field_sources).forEach(([field, source]) => {
-            addTextElement(sources, 'p', `${field}: “${source.text}” — ${sectionLabel(source.section) || 'seção não identificada'}${source.page ? `, p. ${source.page}` : ''}`);
+            addTextElement(sources, 'p', `${field}: “${source.quote || source.text}” — ${sectionLabel(source.section) || 'seção não identificada'}${source.page ? `, p. ${source.page}` : ''}`);
             previewLink(sources, 'Conferir fonte', source.source_url || row.url);
           });
           study.appendChild(sources);
         }
-        cell(tr, row.design_detail || row.design_label);
-        cell(tr, [row.population, row.sample_size ? `n = ${row.sample_size}` : null].filter(Boolean).join(' · '));
+        const methodology = document.createElement('div');
+        if (row.publication_types_source) addTextElement(methodology, 'span', `${(row.publication_types || []).join('; ')} · ${row.publication_types_source}`);
+        if (row.design_detail) addTextElement(methodology, 'span', `Declaração no texto: “${row.design_detail}”`);
+        if (row.comparability_label) addTextElement(methodology, 'span', `Comparabilidade PICO: ${row.comparability_label}`, 'original');
+        if (row.rob_label) addTextElement(methodology, 'span', `Risco de viés: ${row.rob_label}${row.rob_tool_label ? ` · ${row.rob_tool_label}` : ''}`, 'original');
+        if ((row.rob_domains || []).length) {
+          const domains = document.createElement('details');
+          addTextElement(domains, 'summary', 'Ver domínios metodológicos');
+          row.rob_domains.forEach(item => addTextElement(domains, 'p', `${item.domain}: ${item.judgment}${item.reason ? ` — ${item.reason}` : ''}`, 'original'));
+          methodology.appendChild(domains);
+        }
+        cell(tr, methodology);
+        cell(tr, [row.population, row.sample_size ? `Menção no texto: ${row.sample_size}` : null].filter(Boolean).join(' · '));
         cell(tr, [row.intervention_or_exposure, row.comparator].filter(Boolean).join(' × '));
         cell(tr, [row.outcome, row.effect_estimate].filter(Boolean).join(' — '));
         const relation = document.createElement('span'); relation.className = 'rel'; relation.dataset.relation = row.relation;
@@ -1105,7 +1168,7 @@ WEB_UI_HTML = r"""<!doctype html>
       const status = document.getElementById('complementary-status');
       const button = document.getElementById('complementary-search');
       const info = data.complementary || {};
-      button.disabled = info.status === 'RUNNING';
+      button.disabled = pipelineBusy || info.status === 'RUNNING';
       if (info.status === 'RUNNING') status.textContent = 'Pesquisa complementar em andamento… os novos estudos entram na tabela e na síntese quando terminar.';
       else if (info.status === 'DONE') status.textContent = `Pesquisa complementar concluída: ${info.candidate_count} candidato(s), ${info.added_count} estudo(s) novo(s) incluído(s), ${info.added_assessed_count} lido(s). Consultas: ${(info.queries || []).join(' · ')}`;
       else if (info.status === 'FAILED') status.textContent = `A pesquisa complementar falhou: ${info.message || 'erro desconhecido'}`;
@@ -1154,12 +1217,85 @@ WEB_UI_HTML = r"""<!doctype html>
       addTextElement(list, 'li', `Parâmetros: ${JSON.stringify(info.parameters || {})}`);
       (info.queries || []).forEach(query => addTextElement(list, 'li', `Consulta: ${query}`));
     }
+    function renderStructuredSearch(payload) {
+      const panel = document.getElementById('structured-search');
+      const status = document.getElementById('structured-search-status');
+      const grid = document.getElementById('structured-search-grid');
+      clearNode(grid);
+      panel.style.display = payload ? 'block' : 'none';
+      if (!payload) return;
+      const generation = ++structuredSearchGeneration;
+      status.textContent = payload.checked_at
+        ? `Consulta executada em ${new Date(payload.checked_at).toLocaleString()}.`
+        : 'Consulta executada.';
+      const card = (title, records, emptyText, formatter) => {
+        const node = document.createElement('article'); node.className = 'structured-search-card';
+        addTextElement(node, 'h4', title);
+        if (!records.length) addTextElement(node, 'p', emptyText, 'structured-search-empty');
+        records.slice(0, 8).forEach(record => {
+          const item = document.createElement('div'); item.className = 'structured-search-record';
+          formatter(item, record); node.appendChild(item);
+        });
+        return node;
+      };
+      Promise.resolve().then(() => {
+        if (generation !== structuredSearchGeneration) return;
+        const entities = payload.entities || {};
+        const records = [
+          ['Entidades detectadas', [
+            `Genes: ${(entities.genes || []).join(', ') || 'nenhum'}`,
+            `Variantes: ${(entities.variants || []).join(', ') || 'nenhuma'}`
+          ]],
+          ['Registros NCBI Gene', payload.gene_records || []],
+          ['Registros ClinVar', payload.clinvar_records || []]
+        ];
+        const geneRecords = (payload.gene_records || []).map(record => ({
+          title: record.name || record.nomenclature_symbol || record.uid || 'Registro NCBI Gene',
+          detail: [record.description, record.organism, record.uid ? `GeneID ${record.uid}` : null].filter(Boolean).join(' · '),
+          url: record.uid ? `https://www.ncbi.nlm.nih.gov/gene/${encodeURIComponent(record.uid)}` : null
+        }));
+        const clinvarRecords = (payload.clinvar_records || []).map(record => ({
+          title: record.title || record.accessionversion || record.uid || 'Registro ClinVar',
+          detail: [record.clinical_significance, record.condition, record.review_status, record.uid ? `UID ${record.uid}` : null].filter(Boolean).join(' · '),
+          url: record.uid ? `https://www.ncbi.nlm.nih.gov/clinvar/variation/${encodeURIComponent(record.uid)}/` : null
+        }));
+        const entityCard = document.createElement('article'); entityCard.className = 'structured-search-card';
+        addTextElement(entityCard, 'h4', records[0][0]);
+        records[0][1].forEach(item => addTextElement(entityCard, 'p', item));
+        grid.appendChild(entityCard);
+        const addRecordCard = (title, items, empty) => {
+          const node = card(title, items, empty, (parent, item) => {
+            addTextElement(parent, 'strong', item.title || 'Registro');
+            if (item.detail) addTextElement(parent, 'span', item.detail, 'article-meta');
+            const url = safeUrl(item.url);
+            if (url) {
+              const link = document.createElement('a'); link.href = url; link.target = '_blank';
+              link.rel = 'noopener noreferrer'; link.textContent = ' Conferir no NCBI ↗'; parent.appendChild(link);
+            }
+          });
+          grid.appendChild(node);
+        };
+        addRecordCard('Registros NCBI Gene', geneRecords, 'Nenhum registro Gene localizado para as entidades detectadas.');
+        addRecordCard('Registros ClinVar', clinvarRecords, 'Nenhum registro ClinVar localizado para as entidades detectadas.');
+        const failures = payload.failures || [];
+        status.textContent = failures.length
+          ? `${payload.checked_at ? `Consultado em ${new Date(payload.checked_at).toLocaleString()}. ` : ''}${failures.length} fonte(s) retornaram falha; veja os detalhes.`
+          : `Consultado em ${payload.checked_at ? new Date(payload.checked_at).toLocaleString() : 'data não informada'}.`;
+        failures.forEach(failure => addTextElement(grid, 'p', `${failure.source}: ${failure.reason}`, 'structured-search-empty'));
+      }).catch(error => {
+        if (generation !== structuredSearchGeneration) return;
+        status.textContent = `Busca estruturada indisponível: ${error.message}`;
+        addTextElement(grid, 'p', 'O restante da análise continua disponível com PubMed/PMC.', 'structured-search-empty');
+      });
+    }
+
     function renderResult(data, shouldScroll) {
       const weighted = data.weighted_evidence || {};
       activeArticles = data.articles || [];
       renderWeighted(weighted);
       renderEvidenceMap(weighted.rows || []);
       renderEvidenceTable(weighted.rows || []);
+      window.renderReferenceComparison?.(data, {analysisId: activeAnalysisId, claimId: activeClaimId, busy: pipelineBusy});
       renderReproducibility(data);
       renderUpdates(data);
       renderComplementary(data);
@@ -1175,6 +1311,7 @@ WEB_UI_HTML = r"""<!doctype html>
         reading: {}, evidence_balance: {}, findings: [],
         caveats: report.limitations || [], next_action: 'Confira as fontes manualmente.'
       };
+      renderStructuredSearch(data.structured_search);
       const extractedClaim = document.getElementById('extracted-claim');
       extractedClaim.textContent = narrative.claim ? `O artigo afirma: ${narrative.claim}` : '';
       extractedClaim.style.display = narrative.claim ? 'block' : 'none';
@@ -1211,13 +1348,12 @@ WEB_UI_HTML = r"""<!doctype html>
       const indicators = verification.indicators || {};
       const coverage = indicators.search_coverage || {};
       const compatibility = indicators.evidence_compatibility || {};
-      const methodology = indicators.methodological_confidence || {};
       document.getElementById('coverage-label').textContent = text(coverage.label);
       document.getElementById('coverage-detail').textContent = text(coverage.explanation);
       document.getElementById('compatibility-label').textContent = text(compatibility.label);
       document.getElementById('compatibility-detail').textContent = text(compatibility.explanation);
-      document.getElementById('methodology-label').textContent = text(methodology.label);
-      document.getElementById('methodology-detail').textContent = text(methodology.explanation);
+      document.getElementById('methodology-label').textContent = 'Informações com origem rastreável';
+      document.getElementById('methodology-detail').textContent = 'Metadados da API e trechos do texto são apresentados com sua origem. Campos sem respaldo são omitidos; a cobertura da leitura permanece indicada.';
 
       const dossier = data.article_dossier || {};
       const dossierPanel = document.getElementById('article-dossier');
@@ -1235,25 +1371,20 @@ WEB_UI_HTML = r"""<!doctype html>
           const card = document.createElement('article'); card.className = 'finding';
           addTextElement(card, 'h3', title); addTextElement(card, 'p', detail); dossierItems.appendChild(card);
         };
-        addDossierItem('Identidade e publicação',
-          `${identity.explanation || 'Identidade não confirmada'} Autores: ${statusLabel(identity.authors_consistency)}. ` +
-          `DOI: ${identity.doi || 'não informado'}; periódico: ${publication.journal || 'não informado'}; data: ${publication.publication_date || 'não informada'}.`);
-        addDossierItem('Status editorial',
-          `Revisão por pares: ${statusLabel(editorial.peer_review)}. Retratação: ${statusLabel(editorial.retraction)}. ` +
-          `${editorial.retraction_explanation || ''}`);
-        addDossierItem('Desenho, amostra e protocolo',
-          `Desenho: ${statusLabel(dossierMethod.study_design)}; fonte: ${statusLabel(dossierMethod.classification_source)}. ` +
-          `Amostra: ${sample.value == null ? 'não localizada' : sample.value}. Protocolos: ${(protocol.identifiers || []).join(', ') || 'não localizados'}.`);
-        addDossierItem('Transparência',
-          `Financiamento: ${statusLabel(transparency.funding?.status)}. Conflitos de interesse: ${statusLabel(transparency.conflicts_of_interest?.status)}. ` +
-          `Disponibilidade de dados: ${statusLabel(transparency.data_availability?.status)}.`);
+        const fieldLabels = {title: 'Título', pmid: 'PMID', doi: 'DOI', authors: 'Autores', journal: 'Periódico', publication_date: 'Data de publicação', publication_types: 'Tipos de publicação'};
+        Object.entries(dossier.structured_fields || {}).forEach(([field, origin]) => {
+          const value = Array.isArray(origin.value) ? origin.value.join('; ') : origin.value;
+          if (value) addDossierItem(fieldLabels[field] || field, `${value} · fonte: ${origin.source}, campo ${origin.field}`);
+        });
+        if (editorial.retraction === 'RETRACTED') addDossierItem('Sinal editorial nos metadados', editorial.retraction_explanation);
+        if ((editorial.corrections || []).length) addDossierItem('Atualizações editoriais nos metadados', editorial.corrections.join('; '));
+        if ((protocol.identifiers || []).length) addDossierItem('Identificadores mencionados no texto', protocol.identifiers.join('; '));
         const transparencyLabels = {funding: 'financiamento', conflicts_of_interest: 'conflitos de interesse', data_availability: 'disponibilidade de dados'};
         Object.entries(transparency).forEach(([field, signal]) => {
           if (signal.excerpt) addDossierItem(`Trecho sobre ${transparencyLabels[field] || field.replaceAll('_', ' ')}`, `${sectionLabel(signal.section)}: “${signal.excerpt}”`);
         });
-        if (sample.status === 'FOUND') addDossierItem('Origem da amostra', sample.explanation);
-        addDossierItem('Limites da ficha',
-          `${dossier.results_conclusion_consistency?.explanation || 'Consistência entre resultados e conclusão não avaliada.'}`);
+
+
       }
 
       const limitations = document.getElementById('limitations'); clearNode(limitations);
@@ -1292,22 +1423,69 @@ WEB_UI_HTML = r"""<!doctype html>
       (narrative.findings || []).forEach(item => {
         const card = document.createElement('article'); card.className = 'finding';
         card.dataset.relation = item.relation || 'UNCERTAIN';
-        addTextElement(card, 'span', item.relation_label, 'badge');
-        addTextElement(card, 'h3', item.article_title_pt || item.article_title);
-        if (item.article_title_pt && item.article_title_pt !== item.article_title) addTextElement(card, 'div', item.article_title, 'article-meta');
-        if (item.finding_pt) addTextElement(card, 'p', item.finding_pt);
-        const studyMeta = [item.publication_date || 'data não informada', item.journal, item.study_design, item.scope_label].filter(Boolean).join(' · ');
-        addTextElement(card, 'div', studyMeta, 'article-meta');
-        if (item.quote_pt) addTextElement(card, 'blockquote', `“${item.quote_pt}”`, 'translated');
-        if (item.quote) addTextElement(card, 'blockquote', `${item.quote_pt ? 'Original: ' : ''}“${item.quote}”`);
-        else addTextElement(card, 'div', 'O modelo classificou a relação, mas não devolveu um trecho literal citável. Trate esta avaliação com cautela.', 'missing-quote');
-        if (item.rationale) addTextElement(card, 'p', `Por que entrou nesta categoria: ${item.rationale}`, 'reason');
+        card.classList.add('evidence-message');
+        const heading = document.createElement('header'); heading.className = 'comparison-heading';
+        const relationNames = {SUPPORTS: 'Compatível com a alegação', CONTRADICTS: 'Divergente da alegação', NEUTRAL: 'Contexto, sem resposta direta', UNCERTAIN: 'Comparação inconclusiva'};
+        const title = document.createElement('h3'); title.textContent = relationNames[item.relation] || 'Comparação inconclusiva';
+        heading.appendChild(title);
+        addTextElement(heading, 'span', item.scope_label || 'Escopo não informado', 'comparison-scope');
+        card.appendChild(heading);
+        const comparison = document.createElement('div'); comparison.className = 'comparison-pair';
+        const claimPanel = document.createElement('section'); claimPanel.className = 'comparison-claim';
+        addTextElement(claimPanel, 'h4', 'Alegação investigada');
+        addTextElement(claimPanel, 'p', item.compared_claim || narrative.claim || data.input?.claim || data.submitted_article?.primary_claim || 'A alegação não está registrada neste resultado.', 'comparison-claim-text');
+        const evidencePanel = document.createElement('section'); evidencePanel.className = 'comparison-evidence';
+        addTextElement(evidencePanel, 'h4', 'Trecho usado na comparação');
+        if (item.quote) {
+          if (item.quote_pt && item.quote_pt !== item.quote) {
+            addTextElement(evidencePanel, 'span', 'Tradução para leitura', 'comparison-quote-label');
+            addTextElement(evidencePanel, 'blockquote', item.quote_pt, 'translated');
+            const original = document.createElement('details'); original.className = 'comparison-original';
+            addTextElement(original, 'summary', 'Ver trecho literal no idioma original');
+            addTextElement(original, 'blockquote', item.quote);
+            evidencePanel.appendChild(original);
+          } else {
+            addTextElement(evidencePanel, 'span', 'Trecho literal do artigo', 'comparison-quote-label');
+            addTextElement(evidencePanel, 'blockquote', item.quote);
+          }
+        } else addTextElement(evidencePanel, 'p', 'Não foi fornecido um trecho literal para conferir esta classificação.', 'missing-quote');
+        if (item.location) addTextElement(evidencePanel, 'p', item.location, 'comparison-location');
+        comparison.append(claimPanel, evidencePanel); card.appendChild(comparison);
+        const explanation = document.createElement('section'); explanation.className = 'comparison-explanation';
+        addTextElement(explanation, 'h4', 'Por que esta classificação?');
+        addTextElement(explanation, 'p', item.rationale || 'A justificativa da classificação não foi registrada. Confira o trecho e a alegação antes de interpretar o resultado.');
+        addTextElement(explanation, 'small', 'Esta classificação indica uma relação textual; não confirma a alegação nem avalia a qualidade do estudo.');
+        card.appendChild(explanation);
+        const source = document.createElement('section'); source.className = 'comparison-source';
+        addTextElement(source, 'h4', 'Artigo consultado');
+        addTextElement(source, 'p', item.article_title_pt || item.article_title, 'comparison-source-title');
+        const studyMeta = [item.journal, item.publication_date ? formatPublicationDate(item.publication_date) : null, item.pmid ? `PMID ${item.pmid}` : null].filter(Boolean).join(' · ');
+        if (studyMeta) addTextElement(source, 'p', studyMeta, 'article-meta');
+        card.appendChild(source);
+        const details = document.createElement('details'); details.className = 'comparison-details';
+        addTextElement(details, 'summary', 'Detalhes do achado e da busca');
+        if (item.article_title_pt && item.article_title_pt !== item.article_title) {
+          addTextElement(details, 'h4', 'Título original'); addTextElement(details, 'p', item.article_title);
+        }
+        if (item.finding_pt) {
+          addTextElement(details, 'h4', 'Resumo automático do achado'); addTextElement(details, 'p', item.finding_pt);
+        }
         const discovery = (item.retrieval_sources || []).join(', ');
         const relevance = (item.relevance_reasons || []).join('; ');
-        if (discovery || relevance) addTextElement(card, 'div', `Descoberta: ${discovery || 'não informada'}${relevance ? ` · Relevância: ${relevance}` : ''}`, 'article-meta');
-        addTextElement(card, 'div', item.location, 'article-meta');
+        if (discovery) { addTextElement(details, 'h4', 'Onde o artigo foi encontrado'); addTextElement(details, 'p', discovery); }
+        if (relevance) { addTextElement(details, 'h4', 'Por que foi selecionado na busca'); addTextElement(details, 'p', relevance); }
+        if (item.model_name) { addTextElement(details, 'h4', 'Modelo da comparação'); addTextElement(details, 'p', item.model_name); }
+        if (item.doi) addTextElement(details, 'p', `DOI: ${item.doi}`, 'article-meta');
+        card.appendChild(details);
+        const actions = document.createElement('div'); actions.className = 'message-actions';
+        if (item.quote) {
+          const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'secondary copy-evidence';
+          copy.dataset.copyText = [item.article_title || item.article_title_pt, item.quote, item.location, safeUrl(item.source_url)].filter(Boolean).join('\n\n');
+          copy.textContent = 'Copiar trecho e fonte'; actions.appendChild(copy);
+        }
         const url = safeUrl(item.source_url);
-        if (url) { const link = document.createElement('a'); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Conferir no artigo'; card.appendChild(link); }
+        if (url) { const link = document.createElement('a'); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Conferir no artigo ↗'; actions.appendChild(link); }
+        card.appendChild(actions);
         findings.appendChild(card);
       });
 
@@ -1318,15 +1496,16 @@ WEB_UI_HTML = r"""<!doctype html>
         else { li.textContent = text(source.label); }
         sources.appendChild(li);
       });
-      statusBox.style.display = 'none'; claimReview.style.display = 'none';
-      resultBox.style.display = 'block'; submit.disabled = false; researchSelected.disabled = false;
+      statusBox.style.display = pipelineBusy ? 'block' : 'none'; claimReview.style.display = 'block';
+      resultBox.style.display = 'block'; submit.disabled = false; researchSelected.disabled = pipelineBusy;
       if (shouldScroll !== false) resultBox.scrollIntoView({behavior: 'smooth', block: 'start'});
     }
     function renderAnalysis(data, shouldScroll) {
       setWorkflowStep(3);
-      if (activeAnalysisId) loadArticleReader({analysis_id: activeAnalysisId, status: 'SUCCEEDED', result: data});
+      if (activeAnalysisId) loadArticleReader({analysis_id: activeAnalysisId, status: pipelineBusy ? 'RESEARCHING' : 'SUCCEEDED', result: data});
       renderWholeArticle(data.whole_article_analysis);
       document.getElementById('watch-toggle').checked = Boolean(data.watch?.enabled);
+      document.getElementById('watch-toggle').disabled = pipelineBusy;
       document.getElementById('export-markdown').href = activeAnalysisId ? `/api/v1/analyses/${activeAnalysisId}/report.md` : '#';
       const navigation = document.getElementById('claim-navigation');
       const tabs = document.getElementById('claim-tabs'); clearNode(tabs);
@@ -1359,6 +1538,8 @@ WEB_UI_HTML = r"""<!doctype html>
         tabs.querySelectorAll('.claim-tab').forEach((item, itemIndex) =>
           item.setAttribute('aria-selected', itemIndex === index ? 'true' : 'false'));
         activeClaimId = analyses[index].claim_id;
+        document.querySelectorAll('#claim-pipeline-tabs .claim-tab').forEach(tab =>
+          tab.setAttribute('aria-current', String(tab.dataset.claimId === activeClaimId)));
         renderResult(analyses[index].result, shouldScroll);
       };
       analyses.forEach((analysis, index) => {
@@ -1405,11 +1586,11 @@ WEB_UI_HTML = r"""<!doctype html>
         reviewClaims.querySelectorAll('button').forEach(item => { item.disabled = true; });
         const response = await fetch(activeSelectionUrl, {
           method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({claims: selected, depth: selectedDepth()})
+          body: JSON.stringify({claims: selected, depth: selectedDepth(), comparison: await window.getComparisonSelection()})
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error?.message || 'Não foi possível iniciar a investigação.');
-        claimReview.style.display = 'none'; statusBox.style.display = 'block';
+        pipelineBusy = true; claimReview.style.display = 'block'; statusBox.style.display = 'block';
         await poll(payload.status_url || activeStatusUrl);
       } catch (error) {
         researchSelected.disabled = false;
@@ -1417,28 +1598,37 @@ WEB_UI_HTML = r"""<!doctype html>
         showError(error.message || 'Erro inesperado.');
       }
     }
-    function renderClaimSelection(job) {
+    function renderClaimSelection(job, shouldScroll = true) {
+      pipelineBusy = job.status === 'RESEARCHING';
+      researchSelected.disabled = pipelineBusy;
+      window.restoreComparisonSelection?.(job.result?.comparison);
       setWorkflowStep(2);
-      const claims = job.result?.submitted_article?.claims || [];
+      const completedById = new Map((job.result?.claim_analyses || []).map(item => [item.claim_id, item]));
+      const claims = (job.result?.submitted_article?.claims || []).map(claim => ({...claim, ...(completedById.get(claim.claim_id)?.claim || {})}));
       activeEstimates = job.result?.research_estimates || null;
       clearNode(reviewClaims);
       if (!claims.length) throw new Error('Nenhuma alegação editável foi extraída do artigo.');
       const importanceLabels = {HIGH: 'Importância alta', MEDIUM: 'Importância média', LOW: 'Importância baixa'};
-      const anyHigh = claims.some(claim => claim.profile?.importance === 'HIGH');
       claims.forEach((claim, index) => {
         const profile = claim.profile || {};
         const card = document.createElement('article'); card.className = 'claim-card';
         card.dataset.claimId = claim.claim_id;
+        card.dataset.userSupplied = claim.user_supplied ? 'true' : 'false';
         const head = document.createElement('div'); head.className = 'claim-card-head';
         const toggle = document.createElement('label');
         const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.dataset.claimId = claim.claim_id;
-        checkbox.checked = anyHigh ? profile.importance === 'HIGH' : index === 0;
+        checkbox.checked = !completedById.has(claim.claim_id);
+        checkbox.disabled = pipelineBusy;
         checkbox.addEventListener('change', updateEstimate);
         toggle.appendChild(checkbox); addTextElement(toggle, 'strong', `Alegação ${index + 1}`); head.appendChild(toggle);
         if (profile.claim_type_label) addTextElement(head, 'span', profile.claim_type_label, 'badge');
         if (profile.importance) { const badge = addTextElement(head, 'span', importanceLabels[profile.importance] || profile.importance, 'badge'); badge.dataset.level = profile.importance; if (profile.importance_reason) badge.title = profile.importance_reason; }
+        const entry = completedById.get(claim.claim_id);
+        addTextElement(head, 'span', ({SUCCEEDED: 'Comparação pronta', RUNNING: 'Comparando…', QUEUED: 'Na fila', FAILED: 'Falhou; pode tentar novamente'})[entry?.status] || 'Ainda não investigada', 'badge');
+        if (entry?.error?.message) addTextElement(card, 'p', entry.error.message);
         card.appendChild(head);
         const editor = document.createElement('textarea'); editor.value = claim.text || '';
+        editor.disabled = pipelineBusy;
         editor.maxLength = 2000; editor.dataset.claimId = claim.claim_id; editor.setAttribute('aria-label', `Texto da alegação ${index + 1}`);
         card.appendChild(editor);
         const editedNote = addTextElement(card, 'div', 'Texto alterado: tipo, PICO e consultas serão refeitos antes da busca.', 'edited-note');
@@ -1446,7 +1636,7 @@ WEB_UI_HTML = r"""<!doctype html>
         editor.addEventListener('input', () => { editedNote.style.display = editor.value.trim() !== (claim.text || '') ? 'block' : 'none'; });
         const location = [sectionLabel(claim.section), claim.page ? `p. ${claim.page}` : null].filter(Boolean).join(', ');
         if (claim.quote) addTextElement(card, 'div', `Trecho de origem: “${claim.quote}”${location ? ` — ${location}` : ''}`, 'review-source');
-        else addTextElement(card, 'div', 'Trecho literal de origem não localizado no texto extraído.', 'review-source');
+        else addTextElement(card, 'div', claim.user_supplied ? 'Alegação adicionada por você; não atribuída automaticamente aos autores.' : 'Trecho literal de origem não localizado no texto extraído.', 'review-source');
         if (claim.profile) {
           const pico = document.createElement('div'); pico.className = 'pico-grid';
           [['População', profile.population], ['Intervenção/exposição', profile.intervention], ['Comparador', profile.comparator], ['Desfecho', profile.outcome]].forEach(([label, value]) => {
@@ -1458,9 +1648,16 @@ WEB_UI_HTML = r"""<!doctype html>
         }
         const actions = document.createElement('div'); actions.className = 'actions'; actions.style.marginTop = '4px';
         const single = document.createElement('button'); single.type = 'button'; single.className = 'secondary';
-        single.textContent = 'Investigar esta alegação';
-        single.addEventListener('click', () => startResearch([{claim_id: claim.claim_id, text: editor.value.trim()}]));
-        actions.appendChild(single); card.appendChild(actions);
+        single.textContent = entry?.status === 'SUCCEEDED' ? 'Comparar novamente' : 'Investigar esta alegação';
+        single.disabled = pipelineBusy;
+        single.addEventListener('click', () => startResearch([{claim_id: claim.claim_id, text: editor.value.trim(), ...(claim.user_supplied ? {source:'USER'} : {})}]));
+        actions.appendChild(single);
+        if (entry?.status === 'SUCCEEDED' && entry.result) {
+          const view = document.createElement('button'); view.type = 'button'; view.className = 'secondary'; view.textContent = 'Ver comparação';
+          view.addEventListener('click', () => { activeClaimId = claim.claim_id; renderAnalysis(job.result, false); resultBox.scrollIntoView({behavior:'smooth'}); });
+          actions.appendChild(view);
+        }
+        card.appendChild(actions);
         reviewClaims.appendChild(card);
       });
       document.querySelectorAll('input[name="depth"]').forEach(item => { item.onchange = updateEstimate; });
@@ -1470,44 +1667,102 @@ WEB_UI_HTML = r"""<!doctype html>
       activeStatusUrl = `/api/v1/analyses/${job.analysis_id}`;
       activeSelectionUrl = job.claim_selection_url || `/api/v1/article-analyses/${job.analysis_id}/claims`;
       loadArticleReader(job);
-      statusBox.style.display = 'none'; resultBox.style.display = 'none';
+      statusBox.style.display = pipelineBusy ? 'block' : 'none';
+      if (job.status === 'AWAITING_CLAIM_SELECTION') resultBox.style.display = 'none';
       claimReview.style.display = 'block'; submit.disabled = false;
-      document.getElementById('source-reader').scrollIntoView({behavior: 'smooth', block: 'start'});
+      renderPipelineNavigation(job);
+      if (shouldScroll) document.getElementById('source-reader').scrollIntoView({behavior: 'smooth', block: 'start'});
     }
     researchSelected.addEventListener('click', () => {
       const selected = [];
       reviewClaims.querySelectorAll('.claim-card').forEach(card => {
         const checkbox = card.querySelector('input[type="checkbox"]');
-        if (checkbox.checked) selected.push({claim_id: checkbox.dataset.claimId, text: card.querySelector('textarea').value.trim()});
+        if (checkbox.checked) selected.push({claim_id: checkbox.dataset.claimId, text: card.querySelector('textarea').value.trim(), ...(card.dataset.userSupplied === 'true' ? {source:'USER'} : {})});
       });
       startResearch(selected);
     });
     document.getElementById('export-pdf').addEventListener('click', () => window.print());
     window.addEventListener('beforeprint', () => document.querySelectorAll('details').forEach(item => { item.dataset.wasOpen = item.open ? 'true' : 'false'; item.open = true; }));
     window.addEventListener('afterprint', () => document.querySelectorAll('details').forEach(item => { item.open = item.dataset.wasOpen === 'true'; }));
+    function renderPipelineNavigation(job) {
+      const panel = document.getElementById('claim-pipeline'); panel.hidden = false;
+      const tabs = document.getElementById('claim-pipeline-tabs'); clearNode(tabs);
+      const entries = new Map((job.result?.claim_analyses || []).map(item => [item.claim_id, item]));
+      (job.result?.submitted_article?.claims || []).forEach((claim, index) => {
+        const entry = entries.get(claim.claim_id);
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'claim-tab';
+        button.dataset.claimId = claim.claim_id;
+        button.dataset.status = entry?.status || 'UNSELECTED';
+        button.setAttribute('aria-current', String(activeClaimId === claim.claim_id));
+        addTextElement(button, 'span', `Alegação ${index + 1}`, 'claim-number');
+        addTextElement(button, 'span', entry?.claim?.text || claim.text, 'claim-text');
+        addTextElement(button, 'span', ({SUCCEEDED:'Pronta', RUNNING:'Comparando…', QUEUED:'Na fila', FAILED:'Falhou'})[entry?.status] || 'Selecionar para investigar', 'claim-outcome');
+        button.addEventListener('click', () => {
+          activeClaimId = claim.claim_id;
+          tabs.querySelectorAll('button').forEach(tab => tab.setAttribute('aria-current', String(tab === button)));
+          if (entry?.status === 'SUCCEEDED' && entry.result) { renderAnalysis(job.result, false); resultBox.scrollIntoView({behavior:'smooth'}); }
+          else { const editor = [...reviewClaims.querySelectorAll('textarea')].find(node => node.dataset.claimId === claim.claim_id); editor?.scrollIntoView({behavior:'smooth', block:'center'}); editor?.focus(); }
+        });
+        tabs.appendChild(button);
+      });
+    }
+    document.getElementById('add-custom-claim').addEventListener('click', () => {
+      if (pipelineBusy) return;
+      const id = 'user-' + crypto.randomUUID();
+      const card = document.createElement('article'); card.className = 'claim-card'; card.dataset.claimId = id; card.dataset.userSupplied = 'true';
+      const label = document.createElement('label'); const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = true; checkbox.dataset.claimId = id; checkbox.addEventListener('change', updateEstimate);
+      label.appendChild(checkbox); addTextElement(label, 'strong', 'Sua alegação'); card.appendChild(label);
+      const editor = document.createElement('textarea'); editor.dataset.claimId = id; editor.maxLength = 2000; editor.setAttribute('aria-label', 'Sua alegação'); card.appendChild(editor);
+      addTextElement(card, 'p', 'Adicionada por você; não atribuída automaticamente aos autores.', 'review-source');
+      const single = document.createElement('button'); single.type = 'button'; single.className = 'secondary'; single.textContent = 'Investigar esta alegação'; single.addEventListener('click', () => startResearch([{claim_id:id, text:editor.value.trim(), source:'USER'}])); card.appendChild(single);
+      reviewClaims.appendChild(card); updateEstimate(); editor.focus();
+    });
+    ['select-all-claims', 'clear-claim-selection'].forEach((id, index) => document.getElementById(id).addEventListener('click', () => {
+      if (pipelineBusy) return;
+      reviewClaims.querySelectorAll('input[type="checkbox"]').forEach(node => { node.checked = index === 0; }); updateEstimate();
+    }));
     async function poll(statusUrl) {
+      const generation = ++pollGeneration;
+      let previousProgress = '';
       for (;;) {
-        // Consulta leve durante o processamento; o resultado completo só no fim.
         const response = await fetch(`${statusUrl}?view=status`, {headers: {'Accept': 'application/json'}});
+        if (generation !== pollGeneration) return;
         if (!response.ok) throw new Error('Não foi possível consultar o andamento da análise.');
         const status = await response.json(); setProgress(status.status, status.progress || 0);
         activeAnalysisId = status.analysis_id || activeAnalysisId;
-        if (status.status === 'FAILED') throw new Error(status.error?.message || 'A análise falhou.');
-        if (status.status === 'SUCCEEDED' || status.status === 'AWAITING_CLAIM_SELECTION') {
+        pipelineBusy = ['QUEUED','RUNNING','RESEARCHING'].includes(status.status);
+        const signature = JSON.stringify(status.claim_progress || []);
+        const terminal = ['SUCCEEDED','AWAITING_CLAIM_SELECTION','FAILED'].includes(status.status);
+        if (terminal || (status.status === 'RESEARCHING' && signature !== previousProgress)) {
+          previousProgress = signature;
           const full = await fetch(statusUrl, {headers: {'Accept': 'application/json'}});
+          if (generation !== pollGeneration) return;
           if (!full.ok) throw new Error('Não foi possível carregar o resultado da análise.');
           const job = await full.json();
-          if (job.status === 'SUCCEEDED') renderAnalysis(job.result);
-          else renderClaimSelection(job);
-          return;
+          if (job.result?.submitted_article?.claims?.length) {
+            renderClaimSelection(job, terminal);
+            if ((job.result.claim_analyses || []).some(item => item.status === 'SUCCEEDED' && item.result)) renderAnalysis(job.result, false);
+          }
+          if (terminal) {
+            if (job.status === 'FAILED') showError(job.error?.message || 'A análise falhou.');
+            window.refreshArticleLibrary?.();
+            return;
+          }
         }
         await new Promise(resolve => setTimeout(resolve, 1500));
       }
     }
+    window.openAnalysisSession = async analysisId => {
+      activeAnalysisId = analysisId; activeClaimId = null;
+      activeStatusUrl = `/api/v1/analyses/${encodeURIComponent(analysisId)}`;
+      activeSelectionUrl = `/api/v1/article-analyses/${encodeURIComponent(analysisId)}/claims`;
+      resetArticleReader(); await poll(activeStatusUrl);
+    };
     async function runTopicSearch(page = 1) {
       const button = document.getElementById('topic-submit');
       const status = document.getElementById('topic-status');
       const results = document.getElementById('topic-results');
+      window.cancelPubmedClusters?.();
       button.disabled = true; clearNode(results);
       status.classList.add('is-loading');
       document.getElementById('topic-form').setAttribute('aria-busy', 'true');
@@ -1552,6 +1807,7 @@ WEB_UI_HTML = r"""<!doctype html>
         (data.query_results || []).forEach(item => addTextElement(queries, 'p', `${item.query} — ${item.status === 'OK' ? `${item.total_matches} resultado(s) no PubMed` : 'consulta indisponível'}`));
         articles.forEach(article => {
           const card = document.createElement('article'); card.className = 'finding topic-card';
+          card.dataset.pmid = article.pmid;
           addTextElement(card, 'h3', article.title_pt || article.title);
           if (article.title_pt && article.title_pt !== article.title) {
             addTextElement(card, 'p', `Título original: ${article.title}`, 'article-original-title');
@@ -1588,6 +1844,7 @@ WEB_UI_HTML = r"""<!doctype html>
           navigation.append(previous, pageLabel, next); results.appendChild(navigation);
         }
         results.appendChild(queries);
+        if (articles.length) window.showPubmedClusters?.(articles, results);
         if (page > 1) results.scrollIntoView({behavior: 'smooth', block: 'start'});
       } catch (error) {
         status.textContent = error.message || 'Erro ao consultar o PubMed.';
@@ -1604,7 +1861,8 @@ WEB_UI_HTML = r"""<!doctype html>
 
     form.addEventListener('submit', async event => {
       event.preventDefault(); submit.disabled = true; errorBox.style.display = 'none';
-      activeClaimId = null; activeAnalysisId = null;
+      activeClaimId = null; activeAnalysisId = null; pollGeneration++;
+      pipelineBusy = false; document.getElementById('claim-pipeline').hidden = true;
       resetArticleReader();
       resultBox.style.display = 'none'; claimReview.style.display = 'none';
       document.getElementById('whole-article-report').style.display = 'none';
@@ -1638,8 +1896,12 @@ WEB_UI_HTML = r"""<!doctype html>
       } catch (error) { showError(error.message || 'Erro inesperado.'); }
     });
   </script>
+  <script src="/static/topic-clusters.js"></script>
+  <script src="/static/reference-comparison.js"></script>
   <script src="/static/workspace.js"></script>
   <script src="/static/article-reader.js"></script>
+  <script src="/static/library.js"></script>
+  <script src="/static/interactions.js"></script>
 </body>
 </html>"""
 

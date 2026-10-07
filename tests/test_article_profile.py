@@ -77,6 +77,8 @@ class ArticleProfileTests(unittest.TestCase):
             absolute_language=("always works",),
         )
 
+        self.assertEqual(dossier["structured_fields"]["publication_types"]["value"], ["Randomized Controlled Trial"])
+        self.assertEqual(dossier["structured_fields"]["publication_types"]["field"], "pubtype")
         self.assertEqual(dossier["identity"]["doi_and_title_consistency"], "CONFIRMED")
         self.assertEqual(dossier["identity"]["authors_consistency"], "CONSISTENT")
         self.assertEqual(
@@ -87,7 +89,8 @@ class ArticleProfileTests(unittest.TestCase):
             dossier["methodology"]["classification_source"],
             "PUBMED_PUBLICATION_TYPE",
         )
-        self.assertEqual(dossier["methodology"]["sample_size"]["value"], 240)
+        self.assertIsNone(dossier["methodology"]["sample_size"]["value"])
+        self.assertEqual(dossier["methodology"]["sample_mentions"][0]["value"], 240)
         self.assertEqual(
             dossier["methodology"]["protocol"]["identifiers"],
             ["NCT12345678"],
@@ -98,6 +101,18 @@ class ArticleProfileTests(unittest.TestCase):
             dossier["results_conclusion_consistency"]["status"],
             "NOT_EVALUATED",
         )
+
+
+    def test_text_and_model_cannot_confirm_design_in_dossier(self):
+        dossier = build_article_dossier(
+            title="Randomized trial", doi=None, pmid=None,
+            text="Protocol NCT12345678 was mentioned. A sample of 240 adults.",
+            llm_context="RANDOMIZED_CLINICAL_TRIAL",
+        )
+        self.assertEqual(dossier["methodology"]["study_design"], "UNKNOWN")
+        self.assertEqual(dossier["structured_fields"], {})
+        self.assertIsNone(dossier["methodology"]["sample_size"]["value"])
+
 
     def test_retraction_metadata_generates_explicit_status(self):
         identity = SimpleNamespace(

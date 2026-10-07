@@ -105,15 +105,30 @@ def build_verification_indicators(
     for article in assessed_articles:
         quality = article.get("quality") or {}
         level = str(quality.get("level") or "UNKNOWN").upper()
-        if level == "UNCLEAR":
+        if level == "UNCLEAR" or level not in {"HIGH", "MODERATE", "LOW", "UNKNOWN"}:
             level = "UNKNOWN"
-        if level not in {"HIGH", "MODERATE", "LOW", "UNKNOWN"}:
-            level = "UNKNOWN"
+        assessment = next(iter(article.get("assessments") or ()), {})
+        study_row = (
+            assessment.get("study_row") or {}
+            if isinstance(assessment, dict)
+            else {}
+        )
+        risk_of_bias = str(study_row.get("rob_overall") or "").upper()
+        if level in {"UNKNOWN", "UNCLEAR"} and risk_of_bias:
+            level = {
+                "LOW": "HIGH",
+                "SOME_CONCERNS": "MODERATE",
+                "HIGH": "LOW",
+                "CRITICAL": "LOW",
+            }.get(risk_of_bias, "UNKNOWN")
         quality_counts[level] += 1
         study_design = str(quality.get("study_design") or "UNKNOWN").upper()
         study_design_counts[study_design] += 1
         retracted_count += bool(quality.get("is_retracted"))
-        registered_protocol_count += bool(quality.get("trial_registrations"))
+        registered_protocol_count += bool(
+            quality.get("trial_registrations")
+            or study_row.get("registration_ids")
+        )
         data_available_count += bool(quality.get("datasets"))
 
     known_levels = {
@@ -124,17 +139,17 @@ def build_verification_indicators(
         methodological_label = "Alerta grave: há artigo retratado"
     elif not known_levels:
         methodological_level = "UNKNOWN"
-        methodological_label = "Confiança metodológica desconhecida"
+        methodological_label = "Triagem metodológica inconclusiva"
     elif len(known_levels) == 1 and not quality_counts["UNKNOWN"]:
         methodological_level = next(iter(known_levels))
         methodological_label = {
-            "HIGH": "Confiança metodológica alta",
-            "MODERATE": "Confiança metodológica moderada",
-            "LOW": "Confiança metodológica baixa",
+            "HIGH": "Triagem metodológica favorável",
+            "MODERATE": "Triagem metodológica intermediária",
+            "LOW": "Triagem metodológica com limitações importantes",
         }[methodological_level]
     else:
         methodological_level = "MIXED"
-        methodological_label = "Confiança metodológica heterogênea"
+        methodological_label = "Triagem metodológica heterogênea"
 
     methodology = {
         "level": methodological_level,
@@ -157,7 +172,9 @@ def build_verification_indicators(
             f"{quality_counts['LOW']} baixa e {quality_counts['UNKNOWN']} desconhecida; "
             f"{registered_protocol_count} com protocolo localizado, "
             f"{data_available_count} com dados associados e {retracted_count} retratados. "
-            "Citações e ramificações não alteram esta classificação."
+            "Citações e ramificações não alteram esta classificação. "
+            "A classificação é uma triagem automatizada baseada nos trechos disponíveis; "
+            "não substitui uma ferramenta formal aplicada por revisores."
         ),
     }
     if not assess_methodology:
@@ -328,6 +345,7 @@ def build_abstract_analysis_cards(
     retrieved_article_count: int,
     assessments: Sequence[Any],
     content_failure_count: int = 0,
+    assess_methodology: bool = False,
 ) -> dict[str, Any]:
     """Resume os trechos analisados e explicita seu nível de acesso."""
 
@@ -403,7 +421,10 @@ def build_abstract_analysis_cards(
             articles=tuple(
                 {
                     "access_level": getattr(item, "content_scope", "ABSTRACT_ONLY"),
-                    "assessments": [{"relation": item.relation}],
+                    "assessments": [{
+                        "relation": item.relation,
+                        "study_row": dict(getattr(item, "study_row", None) or {}),
+                    }],
                     "quality": {
                         "level": "UNKNOWN",
                         "study_design": item.study_design,
@@ -419,6 +440,7 @@ def build_abstract_analysis_cards(
                 for _index in range(max(0, retrieved_article_count - len(assessed)))
             ),
             research_context="UNKNOWN",
+            assess_methodology=assess_methodology,
         ),
         "partial_verification": {
             "status": "AVAILABLE" if assessed else "NOT_EVALUATED",
