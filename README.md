@@ -85,7 +85,7 @@ O notebook também funciona sem Gemini: nesse caso, usa um modelo NLI local e um
 ```powershell
 git clone https://github.com/joaocarvv/r.ia-FakeNews.git
 cd r.ia-FakeNews
-git switch fatofake
+git switch refactor/pubmed-only-mvp
 ```
 
 ## 2. Criar o ambiente Python
