@@ -1,9 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: FatoFake
+  - name: artfact
     orgId: 1
-    folder: FatoFake
+    folder: artfact
     type: file
     disableDeletion: true
     editable: true

@@ -1,4 +1,4 @@
-# Mapa do fluxo do projeto Fato ou Fake
+# Mapa do fluxo do projeto artfact
 
 Este documento consolida o pipeline do projeto em um diagrama Mermaid e acompanha a explicação detalhada de cada etapa do fluxo. O objetivo é servir como base de conhecimento para qualquer pessoa que queira entender, manter ou evoluir o sistema.
 
@@ -321,6 +321,6 @@ Esse fechamento é o que diferencia o sistema de uma busca simples. Ele não ape
 
 ## Conclusão
 
-O projeto Fato ou Fake é um pipeline completo de apoio à verificação de alegações científicas. Ele percorre desde a validação da entrada até a geração de uma resposta explicável, passando por busca, identificação, extração, classificação, síntese, avaliação de qualidade e comunicação do resultado.
+O projeto artfact é um pipeline completo de apoio à verificação de alegações científicas. Ele percorre desde a validação da entrada até a geração de uma resposta explicável, passando por busca, identificação, extração, classificação, síntese, avaliação de qualidade e comunicação do resultado.
 
 A base de conhecimento deste fluxo é essencial para garantir que qualquer pessoa que participe do projeto entenda não apenas o que o sistema faz, mas também por que cada etapa existe e como ela influencia a conclusão final.

@@ -11,7 +11,7 @@ application = create_live_retrieval_app()
 log_event(
     logging.getLogger("fatofake.startup"),
     logging.INFO,
-    "Fato ou Fake iniciado via WSGI",
+    "artfact iniciado via WSGI",
     event="application.started",
     host="0.0.0.0",
     port=5000,

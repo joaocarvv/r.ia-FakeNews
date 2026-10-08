@@ -255,7 +255,7 @@ def render_markdown_report(job: Mapping[str, Any]) -> str:
     result = job.get("result") or {}
     submitted = result.get("submitted_article") or {}
     lines = [
-        f"# Relatório Fato ou Fake — {_text(submitted.get('title') or job.get('article_reference'))}",
+        f"# Relatório artfact — {_text(submitted.get('title') or job.get('article_reference'))}",
         "",
         f"- Análise: `{job.get('analysis_id')}`",
         f"- Fonte: {_text((result.get('input') or {}).get('source') or job.get('article_reference'))}",

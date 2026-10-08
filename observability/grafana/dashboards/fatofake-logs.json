@@ -59,7 +59,7 @@
   ],
   "refresh": "5s",
   "schemaVersion": 41,
-  "tags": ["fatofake", "logs", "loki"],
+  "tags": ["artfact", "logs", "loki"],
   "templating": {
     "list": [
       {"allValue": ".*", "current": {"text": "Todos", "value": "$__all"}, "hide": 0, "includeAll": true, "label": "Nível", "multi": true, "name": "level", "options": [{"selected": true, "text": "Todos", "value": "$__all"}, {"selected": false, "text": "INFO", "value": "INFO"}, {"selected": false, "text": "WARNING", "value": "WARNING"}, {"selected": false, "text": "ERROR", "value": "ERROR"}], "query": "INFO,WARNING,ERROR", "type": "custom"},
@@ -69,7 +69,7 @@
   "time": {"from": "now-1h", "to": "now"},
   "timepicker": {},
   "timezone": "browser",
-  "title": "FatoFake — Execução e Logs",
+  "title": "artfact — Execução e Logs",
   "uid": "fatofake-logs",
   "version": 1,
   "weekStart": ""

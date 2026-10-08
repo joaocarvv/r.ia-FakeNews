@@ -1,4 +1,4 @@
-"""Núcleo da aplicação Fato ou Fake."""
+"""Núcleo da aplicação artfact."""
 
 from .analysis_service import (
     AnalysisServiceError,

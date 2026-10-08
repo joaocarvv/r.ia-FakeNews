@@ -22,7 +22,7 @@ if __name__ == "__main__":
     log_event(
         logging.getLogger("fatofake.startup"),
         logging.INFO,
-        "Fato ou Fake iniciado",
+        "artfact iniciado",
         event="application.started",
         host=host,
         port=port,

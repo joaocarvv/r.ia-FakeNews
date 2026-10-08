@@ -313,7 +313,7 @@ class ReportAndPlanTests(unittest.TestCase):
 
         markdown = render_markdown_report(job)
 
-        self.assertIn("# Relatório Fato ou Fake — Artigo", markdown)
+        self.assertIn("# Relatório artfact — Artigo", markdown)
         self.assertIn("Somente o resumo", markdown)
         self.assertIn("CNPq", markdown)
         self.assertIn("Estudo 1", markdown)
