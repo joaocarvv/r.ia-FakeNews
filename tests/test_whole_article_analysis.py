@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from fatofake.article_ingestion import ArticleSubmission, ResolvedArticleDocument
 from fatofake.document_parsing import ParsedPage
-from fatofake.whole_article_analysis import GeminiWholeArticleAnalyzer
+from fatofake.whole_article_analysis import GeminiWholeArticleAnalyzer, detect_tables_and_figures
 
 
 class GatewayStub:
@@ -29,13 +29,26 @@ class GatewayStub:
         return payload["candidates"][0]["content"]["parts"][0]["text"]
 
 
+class SequencedGateway(GatewayStub):
+    def __init__(self, outputs):
+        super().__init__(None)
+        self.outputs = list(outputs)
+
+    def _post_json(self, _url, payload):
+        self.payloads.append(payload)
+        output = self.outputs.pop(0)
+        return {"candidates": [{"content": {"parts": [{"text": json.dumps(output)}]}}]}
+
+
 def report_output():
     citation = {"quote": "The intervention reduced symptoms by 18 percent.", "section": "Results"}
     return {
         "overview": {
             "purpose": "Evaluate an intervention.",
             "research_question": "Does it reduce symptoms?",
+            "source_language": "Português",
             "plain_language_summary": "Symptoms were reduced in the studied sample.",
+            "plain_language_summary_original": "Symptoms were reduced in the studied sample.",
             "authors_conclusion": "The intervention may help.",
         },
         "study": {
@@ -108,6 +121,65 @@ class WholeArticleAnalysisTests(unittest.TestCase):
         self.assertFalse(report["coverage"]["citation_verification_available"])
         self.assertFalse(report["main_findings"][0]["citations"][0]["verified"])
         self.assertEqual(gateway.payloads[0]["tools"], [{"url_context": {}}])
+
+    def test_foreign_summary_is_translated_and_original_is_preserved(self):
+        spanish = report_output()
+        spanish["overview"].update({
+            "source_language": "Espanhol",
+            "purpose": "Describir los resultados clínicos.",
+            "research_question": "¿Cuáles son los resultados clínicos?",
+            "plain_language_summary": "Los síntomas disminuyeron en la muestra estudiada.",
+            "plain_language_summary_original": "Los síntomas disminuyeron en la muestra estudiada.",
+        })
+        paths = GeminiWholeArticleAnalyzer._narrative_paths(spanish)
+        translated = [value for _path, value in paths]
+        replacements = {
+            ("overview", "purpose"): "Descrever os resultados clínicos.",
+            ("overview", "research_question"): "Quais são os resultados clínicos?",
+            ("overview", "plain_language_summary"): "Os sintomas diminuíram na amostra estudada.",
+        }
+        translated = [replacements.get(path, value) for (path, _value), value in zip(paths, translated)]
+        gateway = SequencedGateway([
+            spanish,
+            {"items": [{"index": index, "translated_text": value} for index, value in enumerate(translated)]},
+        ])
+        resolved = ResolvedArticleDocument(
+            title="Estudio controlado",
+            doi="10.1000/es",
+            text="Los síntomas disminuyeron en la muestra estudiada.",
+            parser_name="liteparse",
+            page_count=1,
+            pages=(ParsedPage(1, "Los síntomas disminuyeron en la muestra estudiada."),),
+            sections=(("Resultados", "Los síntomas disminuyeron en la muestra estudiada."),),
+            content_scope="LOCAL_PDF_FULL_TEXT",
+        )
+        report = GeminiWholeArticleAnalyzer(gateway).analyze(
+            ArticleSubmission(None, None, "estudio.pdf", "application/pdf", b"pdf"),
+            resolved,
+        )
+        overview = report["overview"]
+        self.assertEqual(overview["purpose"], "Descrever os resultados clínicos.")
+        self.assertEqual(overview["research_question"], "Quais são os resultados clínicos?")
+        self.assertEqual(overview["plain_language_summary"], "Os sintomas diminuíram na amostra estudada.")
+        self.assertEqual(overview["plain_language_summary_original"], "Los síntomas disminuyeron en la muestra estudiada.")
+        self.assertEqual(overview["translation_status"], "TRANSLATED")
+        self.assertTrue(report["original_narrative"])
+        self.assertIn("português brasileiro", gateway.payloads[1]["contents"][0]["parts"][0]["text"])
+
+    def test_spanish_table_caption_is_mapped_to_source_page(self):
+        resolved = ResolvedArticleDocument(
+            title="Estudio",
+            doi=None,
+            text="Tabla 1 — Características de la población",
+            pages=(ParsedPage(3, "Tabla 1 — Características de la población"),),
+            content_scope="LOCAL_PDF_FULL_TEXT",
+        )
+        detected = detect_tables_and_figures(resolved)
+        report = {"tables_figures": [{"label": "Tabla 1", "kind": "TABLE"}]}
+        GeminiWholeArticleAnalyzer._attach_table_figure_pages(
+            report, {"detected_tables_figures": detected}
+        )
+        self.assertEqual(report["tables_figures"][0]["page"], 3)
 
 
 if __name__ == "__main__":
