@@ -12,7 +12,7 @@ WEB_UI_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Fato ou Fake? — Evidências em saúde</title>
+  <title>artfact — Evidências em saúde</title>
   <style>
     :root {
       color-scheme: light;
@@ -249,23 +249,31 @@ WEB_UI_HTML = r"""<!doctype html>
     }
   </style>
   <link rel="stylesheet" href="/static/workspace.css">
+  <link rel="stylesheet" href="/static/screens.css">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Ir para a pesquisa</a>
   <aside class="sidebar" aria-label="Navegação principal">
-    <a class="brand" href="/" aria-label="Fato ou Fake? Início"><span class="brand-mark" aria-hidden="true">f.</span><span>Fato ou Fake?<small>Literatura em contexto</small></span></a>
-    <div class="sidebar-caption">ÁREA DE PESQUISA</div>
+    <a class="brand" href="/" aria-label="artfact — Início"><span class="brand-mark" aria-hidden="true">a.</span><span>artfact<small>Literatura em contexto</small></span></a>
+    <div class="sidebar-caption">ÁREA DE TRABALHO</div>
     <nav class="side-nav">
-      <button type="button" data-entry="search" class="nav-item is-active"><span aria-hidden="true">⌕</span>Pesquisar artigos</button>
-      <button type="button" data-entry="link" class="nav-item"><span aria-hidden="true">▤</span>Analisar um artigo</button>
-      <a href="#article-library" id="library-open" class="nav-item"><span data-icon="library" aria-hidden="true"></span>Minha biblioteca</a>
+      <button id="home-open" type="button" data-screen-nav="home" class="nav-item is-active"><span aria-hidden="true">⌂</span>Início</button>
+      <button type="button" data-entry="search" data-screen-nav="home" class="nav-item"><span aria-hidden="true">⌕</span>Pesquisar artigos</button>
+      <button type="button" data-entry="link" data-screen-nav="home" class="nav-item"><span aria-hidden="true">▤</span>Analisar um artigo</button>
+      <a href="#article-library" id="library-open" data-screen-nav="library" class="nav-item"><span data-icon="library" aria-hidden="true"></span>Minha biblioteca</a>
       <button type="button" id="guide-open" class="nav-item"><span aria-hidden="true">ⓘ</span>Como funciona</button>
+    </nav>
+    <nav id="analysis-nav" class="analysis-nav" aria-label="Etapas da análise" hidden>
+      <div class="sidebar-caption">ANÁLISE ATUAL</div>
+      <button type="button" data-screen-nav="reading" class="nav-item"><span aria-hidden="true">01</span>Leitura</button>
+      <button type="button" data-screen-nav="claims" class="nav-item"><span aria-hidden="true">02</span>Alegações</button>
+      <button type="button" data-screen-nav="results" class="nav-item"><span aria-hidden="true">03</span>Resultados</button>
     </nav>
     <div class="sidebar-note"><span class="small-label">FONTES DE PESQUISA</span><div class="source-logos"><span>PubMed</span><span>PMC</span></div><p>Artigos, trechos e fontes disponíveis para você conferir.</p></div>
     <div class="sidebar-bottom"><span class="academic-dot"></span>Projeto acadêmico<small>Residência em Inteligência Artificial</small></div>
   </aside>
   <main id="workspace" class="shell">
-    <div class="topbar"><span>Área de trabalho <span class="breadcrumb-separator">/</span> <strong>Pesquisa científica</strong></span><div class="source-status" title="__MODE_LABEL__"><span></span>PubMed + PMC</div></div>
+    <div class="topbar"><span>Área de trabalho <span class="breadcrumb-separator">/</span> <strong id="screen-breadcrumb">Início</strong></span><div class="source-status" title="__MODE_LABEL__"><span></span>PubMed + PMC</div></div>
     <header class="workspace-header">
       <div class="eyebrow">LEITURA CIENTÍFICA ASSISTIDA</div>
       <h1>Uma leitura mais clara.<br><span>Com as fontes à vista.</span></h1>
@@ -330,18 +338,24 @@ WEB_UI_HTML = r"""<!doctype html>
             </select>
           </div>
           <div class="field filter-field filter-field-small">
-            <label for="topic-page-size">Por página</label>
+            <label for="topic-page-size">Artigos analisados</label>
             <select id="topic-page-size">
               <option value="10">10 artigos</option>
               <option value="20" selected>20 artigos</option>
               <option value="50">50 artigos</option>
+              <option value="100">100 artigos</option>
             </select>
           </div>
         </div>
+        <label class="topic-theme-toggle">
+          <input id="topic-clusters-enabled" type="checkbox" checked>
+          <span><strong>Organizar resultados por temas</strong><small>Usa BERTopic e, quando disponível, IA para resumir os temas e revisar artigos sem grupo.</small></span>
+        </label>
         <button id="topic-submit" type="submit">Pesquisar no PubMed <span aria-hidden="true">↗</span></button>
         <div class="suggestions" aria-label="Sugestões de pesquisa"><span>Experimente</span><button type="button" data-topic="Exercício físico e diabetes tipo 2">Exercício e diabetes</button><button type="button" data-topic="Terapia gênica para doenças hereditárias">Terapia gênica</button><button type="button" data-topic="Sono e saúde cardiovascular">Sono e saúde</button></div>
       </form>
       <p id="topic-status" class="hint" role="status" aria-live="polite"></p>
+      <div id="topic-cluster-results"></div>
       <div id="topic-results"></div>
     </section>
 
@@ -409,7 +423,7 @@ WEB_UI_HTML = r"""<!doctype html>
 
     <section id="whole-article-report" class="panel document-report" aria-labelledby="whole-report-title">
       <div class="kicker">02 · Leitura da fonte principal</div>
-      <h2 id="whole-report-title">Dossiê do artigo</h2>
+      <div class="document-report-heading"><h2 id="whole-report-title">Dossiê do artigo</h2><button id="whole-report-language" type="button" class="secondary" hidden aria-pressed="false">Ver no idioma original</button></div>
       <div id="whole-coverage" class="coverage-banner"></div>
       <button id="open-source-preview" type="button" class="secondary">Ver o artigo enviado (texto lido)</button>
       <h3>Pergunta e objetivo</h3>
@@ -631,7 +645,7 @@ WEB_UI_HTML = r"""<!doctype html>
       <div id="preview-body" class="preview-body"></div>
     </dialog>
 
-    <footer><span>Fato ou Fake? · Projeto acadêmico</span><span>Qualidade metodológica não avaliada automaticamente.</span></footer>
+    <footer><span>artfact · Projeto acadêmico</span><span>Qualidade metodológica não avaliada automaticamente.</span></footer>
   </main>
   <script>
     const form = document.getElementById('analysis-form');
@@ -728,10 +742,29 @@ WEB_UI_HTML = r"""<!doctype html>
       if (citation.verified === false) node.title = 'Trecho não localizado automaticamente no texto extraído.';
       parent.appendChild(node);
     }
-    function renderWholeArticle(report) {
+    function renderWholeArticle(report, showOriginal = false) {
       const panel = document.getElementById('whole-article-report');
       if (!report) { panel.style.display = 'none'; return; }
       panel.style.display = 'block';
+      const sourceReport = report;
+      const originalNarrative = report.original_narrative || [];
+      if (showOriginal && originalNarrative.length) {
+        report = JSON.parse(JSON.stringify(report));
+        originalNarrative.forEach(entry => {
+          let target = report;
+          const path = entry.path || [];
+          for (const part of path.slice(0, -1)) {
+            if (target?.[part] == null) return;
+            target = target[part];
+          }
+          if (path.length && target != null) target[path[path.length - 1]] = entry.text;
+        });
+      }
+      const reportLanguage = document.getElementById('whole-report-language');
+      reportLanguage.hidden = !originalNarrative.length;
+      reportLanguage.setAttribute('aria-pressed', String(showOriginal));
+      reportLanguage.textContent = showOriginal ? 'Voltar para português' : 'Ver no idioma original';
+      reportLanguage.onclick = () => renderWholeArticle(sourceReport, !showOriginal);
       const coverage = report.coverage || {};
       const coverageNode = document.getElementById('whole-coverage');
       coverageNode.dataset.complete = coverage.full_article_available === true ? 'true' : 'false';
@@ -788,11 +821,24 @@ WEB_UI_HTML = r"""<!doctype html>
       const tables = document.getElementById('whole-tables'); clearNode(tables);
       const described = report.tables_figures || [];
       const detected = coverage.detected_tables_figures || [];
+      const renderedFigurePages = new Set();
       if (!described.length && !detected.length) addTextElement(tables, 'p', 'Nenhuma tabela ou figura foi identificada no texto lido.');
       described.forEach(item => {
         const card = document.createElement('article'); card.className = 'report-finding';
         addTextElement(card, 'strong', `${item.label} — ${item.description}`);
         if (item.key_data && item.key_data !== 'Não informado') addTextElement(card, 'p', `Dados: ${item.key_data}`);
+        if (item.page && activeAnalysisId && coverage.content_scope === 'LOCAL_PDF_FULL_TEXT' && !renderedFigurePages.has(item.page)) {
+          renderedFigurePages.add(item.page);
+          const figure = document.createElement('figure'); figure.className = 'article-page-figure';
+          const image = document.createElement('img');
+          image.src = `/api/v1/analyses/${encodeURIComponent(activeAnalysisId)}/source/pages/${item.page}/image`;
+          image.alt = `Página ${item.page} do PDF contendo ${item.label || 'a tabela ou figura'}`;
+          image.loading = 'lazy'; image.decoding = 'async';
+          image.addEventListener('error', () => { figure.hidden = true; });
+          const caption = document.createElement('figcaption');
+          caption.textContent = `Imagem da página ${item.page} do PDF original. Use o texto acima para localizar os dados descritos.`;
+          figure.append(image, caption); card.appendChild(figure);
+        }
         tables.appendChild(card);
       });
       if (detected.length) {
@@ -1662,8 +1708,8 @@ WEB_UI_HTML = r"""<!doctype html>
       });
       document.querySelectorAll('input[name="depth"]').forEach(item => { item.onchange = updateEstimate; });
       updateEstimate();
-      renderWholeArticle(job.result?.whole_article_analysis);
       activeAnalysisId = job.analysis_id;
+      renderWholeArticle(job.result?.whole_article_analysis);
       activeStatusUrl = `/api/v1/analyses/${job.analysis_id}`;
       activeSelectionUrl = job.claim_selection_url || `/api/v1/article-analyses/${job.analysis_id}/claims`;
       loadArticleReader(job);
@@ -1762,7 +1808,11 @@ WEB_UI_HTML = r"""<!doctype html>
       const button = document.getElementById('topic-submit');
       const status = document.getElementById('topic-status');
       const results = document.getElementById('topic-results');
-      window.cancelPubmedClusters?.();
+      const clusterResults = document.getElementById('topic-cluster-results');
+      if (page === 1) {
+        window.cancelPubmedClusters?.();
+        clearNode(clusterResults);
+      }
       button.disabled = true; clearNode(results);
       status.classList.add('is-loading');
       document.getElementById('topic-form').setAttribute('aria-busy', 'true');
@@ -1844,7 +1894,9 @@ WEB_UI_HTML = r"""<!doctype html>
           navigation.append(previous, pageLabel, next); results.appendChild(navigation);
         }
         results.appendChild(queries);
-        if (articles.length) window.showPubmedClusters?.(articles, results);
+        if (page === 1 && articles.length && document.getElementById('topic-clusters-enabled').checked) {
+          window.showPubmedClusters?.(articles, clusterResults, {enrich: true, cardsRoot: results});
+        }
         if (page > 1) results.scrollIntoView({behavior: 'smooth', block: 'start'});
       } catch (error) {
         status.textContent = error.message || 'Erro ao consultar o PubMed.';
@@ -1902,6 +1954,7 @@ WEB_UI_HTML = r"""<!doctype html>
   <script src="/static/article-reader.js"></script>
   <script src="/static/library.js"></script>
   <script src="/static/interactions.js"></script>
+  <script src="/static/screen-ui.js"></script>
 </body>
 </html>"""
 

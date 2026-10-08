@@ -37,6 +37,7 @@ from .gemini_evidence import GeminiAnalysisError
 from .pubmed import PubMedError
 from .topic_search import PubMedTopicSearch
 from .topic_clustering import TopicClusteringError
+from .pdf_page_images import PdfPageRenderer, PdfPageRenderingError
 from .report_export import render_markdown_report
 from .research_plan import SEARCH_DEPTHS
 from .input_validation import AnalysisInput, InputValidationError, validate_analysis_input
@@ -1470,12 +1471,14 @@ def create_app(
     topic_clusterer: Any = None,
     reference_comparer: Any = None,
     structured_search: Callable[..., Mapping[str, Any]] | None = None,
+    pdf_page_renderer: Any = None,
 ) -> Flask:
     """Cria a aplicação sem inicializar modelos ou serviços externos no import."""
 
     app = Flask(__name__)
     # Um arquivo de 25 MiB cresce ~33% em Base64; a margem cobre o envelope JSON.
     app.config["MAX_CONTENT_LENGTH"] = 36 * 1024 * 1024
+    pdf_page_renderer = pdf_page_renderer or PdfPageRenderer()
     register_web_ui(app, mode_label=mode_label)
 
     @app.before_request
@@ -1673,6 +1676,13 @@ def create_app(
         if not isinstance(payload, dict):
             return _error_response("INVALID_JSON", "O JSON enviado é inválido.", 400)
         try:
+            mode = payload.get("mode", "cluster")
+            if mode == "prepare":
+                return jsonify(topic_clusterer.prepare(payload.get("articles")))
+            if mode == "enrich":
+                return jsonify(topic_clusterer.enrich(payload.get("articles")))
+            if mode != "cluster":
+                raise InputValidationError("O modo de agrupamento é inválido.")
             return jsonify(topic_clusterer.cluster(payload.get("articles")))
         except InputValidationError as error:
             return _error_response("INVALID_INPUT", str(error), 400)
@@ -1921,6 +1931,29 @@ def create_app(
                 404,
             )
         return jsonify(preview)
+
+    @app.get("/api/v1/analyses/<analysis_id>/source/pages/<int:page>/image")
+    def source_page_image(analysis_id: str, page: int):
+        try:
+            job = job_service.get(analysis_id)
+            result = job.result or {}
+            article_id = result.get("library_article_id")
+            workflow = job.workflow or {}
+            page_count = (workflow.get("resolved") or {}).get("page_count")
+            if not article_id or not isinstance(page_count, int) or not 1 <= page <= min(page_count, 100):
+                raise InputValidationError("A página solicitada não está disponível para esta análise.")
+            content, metadata = job_service.library.original_file(article_id)
+            if metadata.get("mime_type") != "application/pdf":
+                raise InputValidationError("A fonte original desta análise não é um PDF.")
+            response = send_file(BytesIO(pdf_page_renderer.render(content, page)), mimetype="image/jpeg")
+            response.headers["Cache-Control"] = "private, max-age=3600"
+            return response
+        except AnalysisJobNotFoundError:
+            return _error_response("ANALYSIS_NOT_FOUND", "Análise não encontrada.", 404)
+        except InputValidationError as error:
+            return _error_response("PAGE_IMAGE_UNAVAILABLE", str(error), 404)
+        except PdfPageRenderingError as error:
+            return _error_response("PAGE_RENDER_FAILED", str(error), 503)
 
     @app.put("/api/v1/analyses/<analysis_id>/watch")
     def set_watch(analysis_id: str):

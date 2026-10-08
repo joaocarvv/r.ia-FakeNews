@@ -1,4 +1,4 @@
-# Fato ou Fake? — MVP PubMed/PMC orientado a evidências
+# artfact — MVP PubMed/PMC orientado a evidências
 
 O fluxo principal definido para o MVP está documentado em [`docs/fluxo-mvp.md`](docs/fluxo-mvp.md).
 
@@ -288,7 +288,9 @@ NCBI. Com `GEMINI_API_KEY` configurada, a aplicação primeiro gera um dossiê d
 fonte principal: objetivo, pergunta de pesquisa, desenho, população, amostra,
 métodos, resultados, conclusão, limitações, glossário e mapa das seções. Em PDFs,
 as citações do dossiê são verificadas contra o texto extraído e associadas à página
-quando possível. Depois, a aplicação extrai as principais alegações, busca evidências
+quando possível. O resumo em linguagem clara é exibido em português brasileiro por
+padrão; em artigos estrangeiros, a versão no idioma original fica disponível pelo
+botão **Ver no idioma original**. Depois, a aplicação extrai as principais alegações, busca evidências
 independentes e valida os trechos citados nas fontes externas. A análise mede
 compatibilidade, nunca declara o artigo verdadeiro ou falso.
 Para links do PubMed, a recuperação combina busca temática e artigos relacionados
@@ -303,7 +305,10 @@ analisados, atualidade, citações e ramificação — e não a chance de o arti
    desfechos, métodos estatísticos, resultados numéricos, conclusão dos autores,
    limitações declaradas pelos autores (separadas da leitura crítica),
    financiamento, conflitos de interesse e a cobertura real da leitura. Quando só
-   há abstract ou metadados, a tela diz isso explicitamente.
+   há abstract ou metadados, a tela diz isso explicitamente. Em PDFs enviados, as
+   páginas que contêm tabelas ou figuras detectadas são renderizadas sob demanda e
+   exibidas junto da descrição; a imagem mostra a página original inteira, sem
+   recriação pela IA.
 2. **Revisão humana.** Cada alegação vira um cartão editável com afirmação
    normalizada, trecho literal com página/seção, tipo (causal, terapêutica,
    diagnóstica, prognóstica…), PICO e importância estimada. Texto editado é
@@ -361,7 +366,7 @@ docker compose ps
 
 O login inicial do Grafana é `admin` / `admin`, a menos que
 `GRAFANA_ADMIN_USER` e `GRAFANA_ADMIN_PASSWORD` sejam definidos no `.env`. O
-datasource Loki e o dashboard **FatoFake — Execução e Logs** são provisionados
+datasource Loki e o dashboard **artfact — Execução e Logs** são provisionados
 automaticamente. O dashboard permite filtrar por nível e `analysis_id`.
 
 Comandos de operação:
@@ -501,19 +506,42 @@ preserva o baseline e não carrega o modelo. Sem rótulos, o experimento mede te
 reutilização e mudanças de ranking, sem estimar melhoria de relevância.
 
 Na aba **Pesquisar por tema**, os resultados do PubMed agora mostram clusters
-BERTopic: mapa dos artigos, termos de cada tema e botões que filtram a lista.
+BERTopic: um grafo interativo dos artigos, termos de cada tema, lista de membros e
+botões que filtram os resultados. Os embeddings são preparados em lotes de oito,
+com fila e progresso visíveis; ao final, o agrupamento é ajustado uma única vez
+sobre a amostra inicial selecionada. Os nós têm posições fixas para que o mapa não
+mude durante a navegação. As linhas aparecem apenas quando a similaridade de cosseno
+entre os títulos é de pelo menos 42%; artigos sem essa relação permanecem isolados.
+
+O recurso **Organizar resultados por temas** pode ser desativado antes da busca.
+A pessoa também escolhe 10, 20, 50 ou 100 artigos por execução; esse valor controla
+tanto a página retornada pelo PubMed quanto o conjunto analisado pelo BERTopic.
+Quando a organização está desativada, nenhuma preparação de embeddings ou revisão
+temática pela LLM é executada.
+
 O cálculo acontece depois da busca, sem bloquear a exibição dos artigos. Os grupos
-usam os **títulos da página atual**, não todos os resultados da consulta. Ao trocar
-de página, os grupos são recalculados; números de tema são locais à página.
-Artigos classificados como ruído pelo HDBSCAN aparecem em **Sem grupo definido**.
-Com menos de quatro artigos, o painel informa que não há dados suficientes.
+usam os **títulos da primeira amostra selecionada**, não todos os resultados da
+consulta. Ao trocar de página, o mapa é preservado e não é recalculado; uma nova
+pesquisa cria uma nova amostra. Se o
+HDBSCAN classificar pelo menos 70% dos títulos como ruído, o backend reutiliza os
+mesmos embeddings em um particionamento adaptativo para evitar que todos apareçam
+como **Sem grupo definido**. Depois, quando o Gemini está configurado, uma segunda
+etapa cria um nome e um resumo descritivo para cada tema, tenta realocar os outliers
+compatíveis e reúne os demais em **Outros**. A LLM recebe somente identificadores,
+títulos e termos dos grupos; seus resumos não avaliam resultados, qualidade ou
+consenso científico. Com menos de quatro artigos, o painel informa que não há dados
+suficientes.
 
 A rota `POST /api/v1/pubmed-clusters` recebe `articles` com `pmid` e `title`
-(até 100 artigos). O backend usa Sentence Transformers multilíngue, PCA, HDBSCAN
-e c-TF-IDF do BERTopic. `BERTOPIC_EMBEDDING_MODEL` permite configurar o encoder,
+(até 100 artigos). `mode: "prepare"` calcula e guarda embeddings do lote, enquanto
+`mode: "cluster"` agrupa o conjunto completo e `mode: "enrich"` solicita a revisão
+opcional pela LLM. O backend usa Sentence Transformers
+multilíngue, PCA, HDBSCAN, c-TF-IDF do BERTopic e, apenas quando há ruído excessivo,
+K-Means adaptativo. `BERTOPIC_EMBEDDING_MODEL` permite configurar o encoder,
 independentemente dos encoders MedCPT da recuperação. Há cache limitado de
 embeddings e de resultados por processo; clusters não alteram o ranking PubMed.
-Falhas do agrupamento mantêm os artigos disponíveis. O mapa é uma projeção em duas
+Falhas do agrupamento mantêm os artigos disponíveis; falhas da LLM preservam os
+grupos calculados localmente. O mapa é uma projeção em duas
 dimensões; os temas não expressam relevância, qualidade ou concordância científica.
 A [documentação do BERTopic](https://maartengr.github.io/BERTopic/getting_started/dim_reduction/dim_reduction.html)
 descreve a integração de PCA como alternativa ao UMAP.

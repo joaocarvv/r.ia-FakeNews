@@ -1766,6 +1766,13 @@ def create_pubmed_only_app(*, project_root: Path | None = None):
         if os.getenv("GEMINI_API_KEY")
         else None
     )
+    cloud_translator = None
+    if os.getenv("GOOGLE_TRANSLATE_API_KEY"):
+        from .cloud_translation import GoogleCloudTranslator
+        cloud_translator = GoogleCloudTranslator(
+            os.environ["GOOGLE_TRANSLATE_API_KEY"],
+            timeout=float(os.getenv("GOOGLE_TRANSLATE_TIMEOUT", "30")),
+        )
     translator = _query_translator(evidence_analyzer)
     try:
         document_parser = LiteParseDocumentParser(
@@ -1834,7 +1841,7 @@ def create_pubmed_only_app(*, project_root: Path | None = None):
                 runner,
                 PubMedReferenceResolver(pubmed_client, pmc_client),
                 document_parser,
-                GeminiWholeArticleAnalyzer(evidence_analyzer),
+                GeminiWholeArticleAnalyzer(evidence_analyzer, translator=cloud_translator),
                 claim_structurer=GeminiClaimStructurer(evidence_analyzer),
                 structured_search=structured_client,
                 pubmed_only=True,
@@ -1860,7 +1867,10 @@ def create_pubmed_only_app(*, project_root: Path | None = None):
     from .topic_clustering import PubMedTopicClusterer
     from .reference_comparison import ReferenceComparisonService
     reference_comparer = ReferenceComparisonService(pmc_client)
-    clusterer = PubMedTopicClusterer(model_name=os.getenv("BERTOPIC_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL))
+    clusterer = PubMedTopicClusterer(
+        model_name=os.getenv("BERTOPIC_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
+        gateway=evidence_analyzer,
+    )
     app = create_app(
         service,
         mode_label=RETRIEVAL_MODE_LABEL,

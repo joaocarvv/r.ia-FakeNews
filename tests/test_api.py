@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock
 from concurrent.futures import Future
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from fatofake.api import (
     create_app,
 )
 from fatofake.input_validation import validate_analysis_input
+from fatofake.article_ingestion import ArticleSubmission, ResolvedArticleDocument
 
 
 class ImmediateExecutor:
@@ -124,6 +126,37 @@ class ApiTests(unittest.TestCase):
         self.assertIn("O que conseguimos ler", page)
         self.assertIn("Evidências independentes encontradas", page)
         self.assertIn("Ver detalhes técnicos e alertas", page)
+
+    def test_serves_pdf_page_image_for_saved_analysis_source(self):
+        renderer = Mock()
+        renderer.render.return_value = b"\xff\xd8" + b"image" * 30
+        service = AnalysisJobService(RunnerStub(), executor=ImmediateExecutor())
+        self.addCleanup(service.close)
+        saved = service.library.save(
+            ArticleSubmission(None, None, "article.pdf", "application/pdf", b"%PDF-test"),
+            ResolvedArticleDocument(
+                title="Article", doi=None, text="Document text", page_count=1,
+                content_scope="LOCAL_PDF_FULL_TEXT",
+            ),
+        )
+        job = service.store.create(validate_analysis_input("Alegação válida para imagem."))
+        service.store.transition(job.analysis_id, status=AnalysisJobStatus.RUNNING, progress=10)
+        service.store.transition(
+            job.analysis_id,
+            status=AnalysisJobStatus.SUCCEEDED,
+            progress=100,
+            result={"library_article_id": saved["article_id"]},
+            workflow={"resolved": {"page_count": 1}},
+        )
+        client = create_app(service, pdf_page_renderer=renderer).test_client()
+
+        response = client.get(f"/api/v1/analyses/{job.analysis_id}/source/pages/1/image")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "image/jpeg")
+        self.assertIn("max-age=3600", response.headers["Cache-Control"])
+        renderer.render.assert_called_once_with(b"%PDF-test", 1)
+        self.assertEqual(client.get(f"/api/v1/analyses/{job.analysis_id}/source/pages/2/image").status_code, 404)
 
     def test_creates_job_and_returns_completed_result(self):
         runner = RunnerStub()
