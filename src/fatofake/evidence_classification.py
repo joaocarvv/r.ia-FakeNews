@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping, Protocol, Sequence
+from typing import Protocol
 
 from .evidence_extraction import ClaimEvidencePair, EvidenceStatement
 from .retrieval import RetrievalError
-
 
 DEFAULT_NLI_MODEL = "MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli"
 _NLI_LABELS = ("entailment", "contradiction", "neutral")

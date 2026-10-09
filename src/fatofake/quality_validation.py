@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import re
 import ssl
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -16,9 +17,7 @@ from .crossref import CrossrefClient, CrossrefError, verify_publication_identity
 from .evidence_synthesis import ArticleQualityProfile, QualityLevel
 from .pmc import ArticleContent
 from .pubmed import Publication
-from .retrieval import RetrievalError
 from .transport import default_ssl_context
-
 
 DATACITE_API_URL = "https://api.datacite.org/dois"
 CLINICAL_TRIALS_API_URL = "https://clinicaltrials.gov/api/v2/studies"
@@ -299,7 +298,7 @@ def validate_article_quality(
 
     registrations: list[TrialRegistration] = []
     if design is StudyDesign.RANDOMIZED_CLINICAL_TRIAL:
-        nct_ids = tuple(dict.fromkeys(re.findall(r"\bNCT\d{8}\b", f"{publication.title} {content.abstract or ''}", re.I)))
+        nct_ids = tuple(dict.fromkeys(re.findall(r"\bNCT\d{8}\b", f"{publication.title} {content.abstract or ''}", re.IGNORECASE)))
         if not nct_ids:
             checks.append(_check("trial_registration", ValidationStatus.NOT_FOUND, "Nenhum identificador NCT explícito foi localizado.", publication.url))
         else:

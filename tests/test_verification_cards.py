@@ -3,15 +3,14 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from fatofake.verification_cards import (
-    build_analysis_cards,
     build_abstract_analysis_cards,
+    build_analysis_cards,
     build_unassessed_cards,
-    detect_language_alerts,
     build_verification_confidence,
+    detect_language_alerts,
 )
 
 

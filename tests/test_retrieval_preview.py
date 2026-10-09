@@ -2,19 +2,18 @@ import sys
 import unittest
 from pathlib import Path
 
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from fatofake import (
     FederatedSearchEngine,
     ProviderSearchResult,
+    Publication,
     RetrievalError,
     ScientificWork,
     SourceRank,
-    Publication,
 )
-from fatofake.retrieval_preview import GenericHealthQueryPlanner, RetrievalPreviewRunner
 from fatofake.gemini_evidence import GeminiEvidenceAssessment
+from fatofake.retrieval_preview import GenericHealthQueryPlanner, RetrievalPreviewRunner
 
 
 class ProviderStub:

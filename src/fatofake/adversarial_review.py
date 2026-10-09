@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from .evidence_classification import EvidenceAssessment, RelationLabel
 from .report_generation import EvidenceReport, ReportConclusion
 from .retrieval import RetrievalError
-
 
 AUTOMATED_REVIEW_DISCLAIMER = (
     "Esta é uma análise automatizada e experimental da literatura recuperada. "

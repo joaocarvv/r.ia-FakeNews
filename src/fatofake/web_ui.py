@@ -6,7 +6,6 @@ from html import escape
 
 from flask import Flask, Response
 
-
 WEB_UI_HTML = r"""<!doctype html>
 <html lang="pt-BR">
 <head>

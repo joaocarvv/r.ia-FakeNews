@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Sequence
 
 from .evidence_synthesis import ArticleQualityProfile, QualityLevel
 from .pubmed import Publication
 from .quality_validation import ArticleQualityReport, StudyDesign
 from .retrieval import RetrievalError
-
 
 AMSTAR2_SOURCE_URL = "https://www.bmj.com/content/358/bmj.j4008"
 

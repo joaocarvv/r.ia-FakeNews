@@ -6,7 +6,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-from .pmc import ArticleContent, ContentSection
+from .pmc import ArticleContent
 
 
 class ChunkingError(ValueError):

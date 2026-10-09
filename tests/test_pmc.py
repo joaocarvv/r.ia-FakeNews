@@ -2,11 +2,9 @@ import sys
 import unittest
 from pathlib import Path
 
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from fatofake import PmcClient, Publication, retrieve_article_content
-
 
 PUBMED_XML = b"""<?xml version="1.0"?>
 <PubmedArticleSet>

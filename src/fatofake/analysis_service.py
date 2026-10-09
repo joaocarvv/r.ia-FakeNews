@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from .chunking import ChunkingConfig, ChunkingError, chunk_article_content
 from .crossref import CrossrefClient
@@ -29,9 +29,9 @@ from .pmc import (
     retrieve_article_content,
 )
 from .pubmed import (
+    Publication,
     PubMedClient,
     PubMedSearchResult,
-    Publication,
     search_pubmed,
 )
 from .quality_validation import (

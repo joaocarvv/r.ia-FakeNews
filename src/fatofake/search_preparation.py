@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from .input_validation import AnalysisInput
-
 
 MAX_SEARCH_QUERIES = 3
 MAX_QUERY_LENGTH = 300

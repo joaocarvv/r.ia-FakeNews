@@ -3,7 +3,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from fatofake import (
@@ -19,8 +18,8 @@ from fatofake import (
     MultiArticleAnalysisConfig,
     MultiArticleAnalysisService,
     Publication,
-    QualityLevel,
     QualityCheck,
+    QualityLevel,
     RelationLabel,
     RelationProbabilities,
     ReportConclusion,
@@ -189,9 +188,8 @@ class ScientificArticleProcessorTests(unittest.TestCase):
         with patch(
             "fatofake.analysis_service.retrieve_article_content",
             return_value=content_without_text,
-        ):
-            with self.assertRaises(ArticleProcessingError) as raised:
-                processor.process(item, "Beber café altera o risco de câncer.")
+        ), self.assertRaises(ArticleProcessingError) as raised:
+            processor.process(item, "Beber café altera o risco de câncer.")
 
         self.assertEqual(raised.exception.pmid, "1")
         self.assertEqual(raised.exception.stage, "chunking")

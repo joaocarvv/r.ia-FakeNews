@@ -6,7 +6,6 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-
 MIN_CLAIM_LENGTH = 8
 MAX_CLAIM_LENGTH = 800
 DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", re.IGNORECASE)

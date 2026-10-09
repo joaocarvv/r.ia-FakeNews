@@ -5,17 +5,17 @@ from __future__ import annotations
 import base64
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
-from .gemini_evidence import GeminiAnalysisError, GeminiEvidenceAnalyzer
 from .document_parsing import DocumentParsingError, LiteParseDocumentParser
+from .gemini_evidence import GeminiAnalysisError, GeminiEvidenceAnalyzer
 from .input_validation import DOI_PATTERN, DOI_PREFIX_PATTERN, InputValidationError
 from .pmc import ContentRetrievalError, PmcClient
 from .pubmed import PubMedClient, PubMedError
 from .verification_cards import build_verification_confidence
-
 
 MAX_ARTICLE_FILE_BYTES = 10 * 1024 * 1024
 SUPPORTED_ARTICLE_MIME_TYPES = {

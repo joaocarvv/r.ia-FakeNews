@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from threading import Lock
-from typing import Any, Callable, Mapping, Protocol
+from typing import Any, Protocol
 from uuid import uuid4
 
 from flask import Flask, jsonify, request, url_for
@@ -19,9 +20,13 @@ from .article_ingestion import (
     validate_article_submission,
 )
 from .gemini_evidence import GeminiAnalysisError
-from .input_validation import AnalysisInput, InputValidationError, validate_analysis_input
-from .web_ui import register_web_ui
+from .input_validation import (
+    AnalysisInput,
+    InputValidationError,
+    validate_analysis_input,
+)
 from .verification_cards import build_analysis_cards
+from .web_ui import register_web_ui
 
 
 class AnalysisRunner(Protocol):

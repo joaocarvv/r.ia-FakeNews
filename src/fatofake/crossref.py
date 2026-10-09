@@ -8,16 +8,16 @@ import re
 import ssl
 import time
 import unicodedata
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Any, Callable, Mapping
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from .pubmed import Publication
 from .transport import default_ssl_context
-
 
 CROSSREF_BASE_URL = "https://api.crossref.org/works"
 TITLE_MATCH_THRESHOLD = 0.85

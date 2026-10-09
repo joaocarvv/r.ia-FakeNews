@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import time
 import unicodedata
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from .analysis_service import AnalysisServiceError
 from .api import AnalysisJobService, create_app
-
 
 DEMO_MODE_LABEL = (
     "DEMONSTRAÇÃO CONTROLADA — dados sintéticos; não representa análise científica real"

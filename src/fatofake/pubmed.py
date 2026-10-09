@@ -6,15 +6,15 @@ import json
 import ssl
 import time
 from collections import defaultdict
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .search_preparation import SearchPlan
 from .transport import default_ssl_context
-
 
 EUTILS_BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 JsonFetcher = Callable[[str, Mapping[str, str]], Mapping[str, Any]]

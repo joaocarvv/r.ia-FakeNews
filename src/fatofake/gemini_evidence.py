@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 import ssl
 import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .transport import default_ssl_context
-
 
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 _TRANSIENT_HTTP_STATUS = {429, 500, 502, 503, 504}

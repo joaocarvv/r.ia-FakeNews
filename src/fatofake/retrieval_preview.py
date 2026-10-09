@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import re
-from threading import Lock
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from threading import Lock
+from typing import Any, Protocol
 
 from .analysis_service import AnalysisServiceError
 from .api import AnalysisJobService, create_app
@@ -16,12 +17,6 @@ from .article_ingestion import (
     PubMedReferenceResolver,
 )
 from .document_parsing import DocumentParsingError, LiteParseDocumentParser
-from .gemini_evidence import (
-    EvidenceDocument,
-    GeminiAnalysisError,
-    GeminiEvidenceAnalyzer,
-    GeminiEvidenceAssessment,
-)
 from .federated_search import (
     FederatedSearchEngine,
     FederatedSearchError,
@@ -35,6 +30,12 @@ from .federated_search import (
     normalize_doi,
     normalize_pmid,
 )
+from .gemini_evidence import (
+    EvidenceDocument,
+    GeminiAnalysisError,
+    GeminiEvidenceAnalyzer,
+    GeminiEvidenceAssessment,
+)
 from .input_validation import validate_analysis_input
 from .pmc import ContentRetrievalError, PmcClient
 from .pubmed import PubMedClient, PubMedError
@@ -43,7 +44,6 @@ from .verification_cards import (
     build_abstract_analysis_cards,
     build_unassessed_cards,
 )
-
 
 RETRIEVAL_MODE_LABEL = (
     "BUSCA REAL — abstracts analisados pelo Gemini com limitações explícitas"

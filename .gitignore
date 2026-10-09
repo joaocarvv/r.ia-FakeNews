@@ -8,3 +8,4 @@ artifacts/
 docs/EDA_PubMed_Grupo08.docx
 docs/EDA_PubMed_Grupo08.docx
 venv/
+.coverage

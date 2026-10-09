@@ -3,7 +3,6 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from fatofake import (
@@ -29,7 +28,6 @@ from fatofake import (
     RetrievalError,
     ReviewStatus,
 )
-
 
 CLAIM = "O consumo de café aumenta o risco de câncer de próstata."
 

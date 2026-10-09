@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from .hybrid_retrieval import HybridRetrievedChunk
 from .retrieval import RetrievalError, tokenize
-
 
 _STOPWORDS = {
     "a",

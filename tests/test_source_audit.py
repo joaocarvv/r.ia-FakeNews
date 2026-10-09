@@ -2,7 +2,6 @@ import sys
 import unittest
 from pathlib import Path
 
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from fatofake import (
@@ -19,8 +18,8 @@ from fatofake.source_audit import (
     OPENALEX_WORKS_URL,
     PMC_ID_CONVERTER_URL,
     PUBMED_SEARCH_URL,
-    SCIENCEDIRECT_SEARCH_URL,
     SCIELO_ARTICLE_IDENTIFIERS_URL,
+    SCIENCEDIRECT_SEARCH_URL,
     SPRINGER_META_URL,
     SPRINGER_OPENACCESS_URL,
 )

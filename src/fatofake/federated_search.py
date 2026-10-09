@@ -7,17 +7,17 @@ import re
 import ssl
 import time
 import unicodedata
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Protocol, Sequence
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .pubmed import PubMedClient, PubMedError, Publication
+from .pubmed import Publication, PubMedClient, PubMedError
 from .retrieval import RetrievalError
 from .search_preparation import SearchPlan
 from .transport import default_ssl_context
-
 
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 SCIELO_SOURCE_LIST_FILTER = "primary_location.source.listed_in:scielo"

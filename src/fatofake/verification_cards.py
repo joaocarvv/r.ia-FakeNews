@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import re
 import math
+import re
 from collections import Counter
+from collections.abc import Sequence
 from datetime import datetime, timezone
-from typing import Any, Sequence
-
+from typing import Any
 
 _ABSOLUTE_LANGUAGE = (
     r"\b100\s*%",

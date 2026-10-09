@@ -2,22 +2,21 @@ import sys
 import unittest
 from io import BytesIO
 from pathlib import Path
-from urllib.error import HTTPError
 from unittest.mock import patch
-
+from urllib.error import HTTPError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from fatofake import (
+    SCIELO_SOURCE_LIST_FILTER,
     FederatedSearchEngine,
     FederatedSearchError,
     OpenAlexClient,
     OpenAlexSearchProvider,
     ProviderSearchResult,
     RetrievalError,
-    SCIELO_SOURCE_LIST_FILTER,
-    ScientificWork,
     ScieloSearchProvider,
+    ScientificWork,
     SearchPlan,
     SourceRank,
     deduplicate_works,
