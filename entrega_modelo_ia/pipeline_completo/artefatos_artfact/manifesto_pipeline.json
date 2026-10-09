@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-09T14:34:25.678322+00:00",
+  "mode": "offline",
+  "sha256": "c14fbb7892719f3b95eb55a4b9ce8e562c9a94b31619fe11e8a5ce9a20bd4eb3",
+  "data_hash": "b1b685d2938b279e589f544f32e8604458fe82adaf4650e3fbae358556403c51",
+  "chunks_hash": "e24066d4761d2da24c79245ee2fadd70390e2d00d7c7142a8cec152ac23bdfd4",
+  "vectors_hash": "da0620d6f19924effc6b45a15961c47de43c9bb7482567c0663c61cd2cb49f68",
+  "documents": 6,
+  "chunks": 31,
+  "embedding_shape": [
+    31,
+    384
+  ],
+  "config": {
+    "MODO": "offline",
+    "REEXECUTAR_MODELOS_OFFLINE": false,
+    "SEMENTE": 42,
+    "TOP_K": 5,
+    "BM25_K1": 1.5,
+    "BM25_B": 0.75,
+    "PESO_BM25": 0.5,
+    "PESO_SEMANTICO": 0.5,
+    "EMBEDDING_MODEL": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "NLI_MODEL": "MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli",
+    "GEMINI_MODEL": "gemini-flash-lite-latest",
+    "EMBEDDING_REVISION": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+    "NLI_REVISION": "0a71e92a985b6e1ad1828cf67ce9c459639c1dca",
+    "CHUNK_WORDS": 90,
+    "CHUNK_OVERLAP": 15,
+    "SEMANTIC_MIN": 0.35,
+    "RRF_C": 60,
+    "CANDIDATE_MULTIPLIER": 4,
+    "CONFIANCA_MINIMA": 0.6,
+    "MARGEM_MINIMA": 0.1,
+    "BATCH_SIZE": 16,
+    "NLI_MAX_TOKENS": 512,
+    "HTTP_TIMEOUT": 60,
+    "HTTP_ATTEMPTS": 3,
+    "PUBMED_LIMIT": 12,
+    "PUBMED_PAGE": 6,
+    "CONTEXT_MAX_CHARS": 18000,
+    "GEMINI_MAX_TOKENS": 4096,
+    "DEVICE": "cpu",
+    "SCHEMA_VERSION": 1,
+    "EXECUTAR_LOCAL": false
+  },
+  "embedding_meta": {
+    "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "revision": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+    "dimension": 384,
+    "device": "cpu",
+    "max_seq_length": 128,
+    "origin": "cache_local_real"
+  },
+  "nli_meta": {
+    "model": "MoritzLaurer/multilingual-MiniLMv2-L6-mnli-xnli",
+    "revision": "0a71e92a985b6e1ad1828cf67ce9c459639c1dca",
+    "id2label": {
+      "0": "ENTAILMENT",
+      "1": "NEUTRAL",
+      "2": "CONTRADICTION"
+    },
+    "device": "cpu",
+    "origin": "cache_local_real"
+  },
+  "versions": {
+    "pandas": "3.0.6",
+    "numpy": "2.5.3",
+    "matplotlib": "3.11.2",
+    "seaborn": "0.13.2",
+    "scikit-learn": "1.9.1",
+    "sentence-transformers": "6.1.0",
+    "transformers": "5.19.0",
+    "torch": "2.14.1",
+    "requests": "2.34.2",
+    "python": "3.14.6"
+  }
+}

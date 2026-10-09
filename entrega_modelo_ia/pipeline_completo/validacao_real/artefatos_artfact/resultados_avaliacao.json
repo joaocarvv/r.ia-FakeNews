@@ -1,0 +1,465 @@
+{
+  "mode": "real",
+  "retrieval": [
+    {
+      "method": "BM25",
+      "k": 1,
+      "precision": 0.8333333333333334,
+      "recall": 0.5555555555555555,
+      "mrr": 0.9166666666666666,
+      "ndcg": 0.8333333333333334
+    },
+    {
+      "method": "BM25",
+      "k": 3,
+      "precision": 0.611111111111111,
+      "recall": 0.9444444444444445,
+      "mrr": 0.9166666666666666,
+      "ndcg": 0.9084070105209051
+    },
+    {
+      "method": "BM25",
+      "k": 5,
+      "precision": 0.39999999999999997,
+      "recall": 1.0,
+      "mrr": 0.9166666666666666,
+      "ndcg": 0.9420915682709965
+    },
+    {
+      "method": "Híbrido",
+      "k": 1,
+      "precision": 1.0,
+      "recall": 0.611111111111111,
+      "mrr": 1.0,
+      "ndcg": 1.0
+    },
+    {
+      "method": "Híbrido",
+      "k": 3,
+      "precision": 0.611111111111111,
+      "recall": 0.9444444444444445,
+      "mrr": 1.0,
+      "ndcg": 0.9506530148390224
+    },
+    {
+      "method": "Híbrido",
+      "k": 5,
+      "precision": 0.39999999999999997,
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.9843375725891138
+    },
+    {
+      "method": "Semântico",
+      "k": 1,
+      "precision": 1.0,
+      "recall": 0.611111111111111,
+      "mrr": 1.0,
+      "ndcg": 1.0
+    },
+    {
+      "method": "Semântico",
+      "k": 3,
+      "precision": 0.611111111111111,
+      "recall": 0.9444444444444445,
+      "mrr": 1.0,
+      "ndcg": 0.9608934394981036
+    },
+    {
+      "method": "Semântico",
+      "k": 5,
+      "precision": 0.39999999999999997,
+      "recall": 1.0,
+      "mrr": 1.0,
+      "ndcg": 0.9945779972481948
+    }
+  ],
+  "abstention": [
+    {
+      "method": "BM25",
+      "abstention_all": 0.2,
+      "ood_correct": 0.5
+    },
+    {
+      "method": "Semântico",
+      "abstention_all": 0.2,
+      "ood_correct": 0.5
+    },
+    {
+      "method": "Híbrido",
+      "abstention_all": 0.2,
+      "ood_correct": 0.5
+    }
+  ],
+  "nli": {
+    "n": 7,
+    "accuracy": 0.5714285714285714,
+    "macro_f1": 0.6666666666666666,
+    "uncertain_rate": 0.2857142857142857,
+    "covered_accuracy": 0.8
+  },
+  "llm": [
+    {
+      "origin": "real",
+      "n": 10,
+      "json_valid": 1.0,
+      "schema_valid": 1.0,
+      "citation_validity": 1.0,
+      "known_id_rate": 1.0,
+      "passage_coverage": 0.15000000000000002,
+      "structural_groundedness": 1.0,
+      "abstention": 0.4,
+      "agreement": 0.9,
+      "latency_current_s": 1.3472833874999197,
+      "latency_original_s": 1.3455149916000664
+    }
+  ],
+  "errors": [
+    {
+      "case": "hcq-benefit",
+      "type": "falso positivo segundo anotação",
+      "method": "BM25",
+      "detail": [
+        "33837499"
+      ]
+    },
+    {
+      "case": "hcq-benefit",
+      "type": "falso positivo segundo anotação",
+      "method": "Híbrido",
+      "detail": [
+        "33837499"
+      ]
+    },
+    {
+      "case": "hcq-no-benefit",
+      "type": "falso positivo segundo anotação",
+      "method": "BM25",
+      "detail": [
+        "33837499"
+      ]
+    },
+    {
+      "case": "hcq-no-benefit",
+      "type": "falso positivo segundo anotação",
+      "method": "Híbrido",
+      "detail": [
+        "33837499"
+      ]
+    },
+    {
+      "case": "cq-benefit",
+      "type": "falso positivo segundo anotação",
+      "method": "BM25",
+      "detail": [
+        "33031652",
+        "33837499"
+      ]
+    },
+    {
+      "case": "cq-benefit",
+      "type": "falso positivo segundo anotação",
+      "method": "Semântico",
+      "detail": [
+        "33031652"
+      ]
+    },
+    {
+      "case": "cq-benefit",
+      "type": "falso positivo segundo anotação",
+      "method": "Híbrido",
+      "detail": [
+        "33031652",
+        "33837499"
+      ]
+    },
+    {
+      "case": "coffee-risk",
+      "type": "falso positivo segundo anotação",
+      "method": "BM25",
+      "detail": [
+        "33837499",
+        "33859192"
+      ]
+    },
+    {
+      "case": "coffee-risk",
+      "type": "falso positivo segundo anotação",
+      "method": "Semântico",
+      "detail": [
+        "33837499"
+      ]
+    },
+    {
+      "case": "coffee-risk",
+      "type": "falso positivo segundo anotação",
+      "method": "Híbrido",
+      "detail": [
+        "33837499",
+        "33859192"
+      ]
+    },
+    {
+      "case": "coffee-increase",
+      "type": "falso positivo segundo anotação",
+      "method": "BM25",
+      "detail": [
+        "33031652",
+        "33837499"
+      ]
+    },
+    {
+      "case": "coffee-increase",
+      "type": "falso positivo segundo anotação",
+      "method": "Semântico",
+      "detail": [
+        "33837499"
+      ]
+    },
+    {
+      "case": "coffee-increase",
+      "type": "falso positivo segundo anotação",
+      "method": "Híbrido",
+      "detail": [
+        "33031652",
+        "33837499"
+      ]
+    },
+    {
+      "case": "coffee-increase",
+      "type": "discordância lexical/semântico",
+      "method": "ranking",
+      "detail": "primeira posição diferente"
+    },
+    {
+      "case": "coffee-diabetes",
+      "type": "falso positivo segundo anotação",
+      "method": "BM25",
+      "detail": [
+        "25706900",
+        "33031652",
+        "33431520",
+        "33837499",
+        "33859192"
+      ]
+    },
+    {
+      "case": "coffee-diabetes",
+      "type": "falso positivo segundo anotação",
+      "method": "Semântico",
+      "detail": [
+        "24300907",
+        "25706900",
+        "33431520",
+        "33837499"
+      ]
+    },
+    {
+      "case": "coffee-diabetes",
+      "type": "falso positivo segundo anotação",
+      "method": "Híbrido",
+      "detail": [
+        "24300907",
+        "25706900",
+        "33431520",
+        "33837499",
+        "33859192"
+      ]
+    },
+    {
+      "case": "hcq-fracture",
+      "type": "falso positivo segundo anotação",
+      "method": "BM25",
+      "detail": [
+        "33031652",
+        "33837499",
+        "33859192"
+      ]
+    },
+    {
+      "case": "hcq-fracture",
+      "type": "falso positivo segundo anotação",
+      "method": "Semântico",
+      "detail": [
+        "33859192"
+      ]
+    },
+    {
+      "case": "hcq-fracture",
+      "type": "falso positivo segundo anotação",
+      "method": "Híbrido",
+      "detail": [
+        "33031652",
+        "33837499",
+        "33859192"
+      ]
+    },
+    {
+      "case": "hcq-fracture",
+      "type": "discordância lexical/semântico",
+      "method": "ranking",
+      "detail": "primeira posição diferente"
+    },
+    {
+      "case": "coffee-progression",
+      "type": "falso positivo segundo anotação",
+      "method": "BM25",
+      "detail": [
+        "24300907",
+        "25706900",
+        "33431520",
+        "33859192"
+      ]
+    },
+    {
+      "case": "coffee-progression",
+      "type": "falso positivo segundo anotação",
+      "method": "Semântico",
+      "detail": [
+        "24300907",
+        "25706900",
+        "33431520"
+      ]
+    },
+    {
+      "case": "coffee-progression",
+      "type": "falso positivo segundo anotação",
+      "method": "Híbrido",
+      "detail": [
+        "24300907",
+        "25706900",
+        "33431520",
+        "33859192"
+      ]
+    },
+    {
+      "case": "hcq-no-benefit",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "hcq-no-benefit/33031652:3:0:f9de4d9f8ab90bbf"
+    },
+    {
+      "case": "hcq-no-benefit",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "hcq-no-benefit/33859192:0:2:3f31f3a003953f4c"
+    },
+    {
+      "case": "hcq-no-benefit",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "gold/hcq-no-benefit"
+    },
+    {
+      "case": "cq-benefit",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "cq-benefit/33859192:0:3:5cdff585ce8bb28f"
+    },
+    {
+      "case": "cq-benefit",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "cq-benefit/33031652:3:0:f9de4d9f8ab90bbf"
+    },
+    {
+      "case": "cq-benefit",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "cq-benefit/33031652:1:0:6b9557595ddd4872"
+    },
+    {
+      "case": "cq-benefit",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "gold/cq-benefit"
+    },
+    {
+      "case": "coffee-risk",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "coffee-risk/24300907:0:0:afec758d120b7f5c"
+    },
+    {
+      "case": "coffee-risk",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "coffee-risk/25706900:0:0:7a0662daf84c0d70"
+    },
+    {
+      "case": "coffee-diabetes",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "coffee-diabetes/33837499:0:0:45ce2a8ff5c15601"
+    },
+    {
+      "case": "hcq-fracture",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "hcq-fracture/33837499:1:0:cb416da357531d5f"
+    },
+    {
+      "case": "coffee-progression",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "coffee-progression/33837499:2:1:f98fb6393cd9c64d"
+    },
+    {
+      "case": "coffee-progression",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "coffee-progression/33837499:1:0:cb416da357531d5f"
+    },
+    {
+      "case": "coffee-progression",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "coffee-progression/24300907:2:1:9be983ef65a14d3a"
+    },
+    {
+      "case": "live",
+      "type": "NLI incerto",
+      "method": "NLI",
+      "detail": "live/35192518:1:0:49a8e6d57afd45f4"
+    }
+  ],
+  "timings": {
+    "estruturação": 1.3811616249995495,
+    "busca": 2.328014083999733,
+    "chunking": 0.0005042909997428069,
+    "BM25 ajuste": 0.0020779579999725684,
+    "embeddings carga": 2.577432291999685,
+    "embeddings corpus": 0.4299022920004063,
+    "recuperação benchmark": 0.18089291899650561,
+    "NLI carga": 3.5801242080005977,
+    "NLI inferência": 1.1312102079991746,
+    "Gemini análise": 14.784889374999693
+  },
+  "comparison": [
+    {
+      "Componente": "BM25",
+      "Métrica": "Recall@5",
+      "Resultado": 1.0
+    },
+    {
+      "Componente": "Semântico",
+      "Métrica": "Recall@5",
+      "Resultado": 1.0
+    },
+    {
+      "Componente": "Híbrido",
+      "Métrica": "Recall@5",
+      "Resultado": 1.0
+    },
+    {
+      "Componente": "NLI",
+      "Métrica": "Macro-F1",
+      "Resultado": 0.6666666666666666
+    },
+    {
+      "Componente": "Gemini (real)",
+      "Métrica": "Citações válidas",
+      "Resultado": 1.0
+    }
+  ]
+}

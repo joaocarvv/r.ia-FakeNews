@@ -1,0 +1,36 @@
+{
+  "cells": 75,
+  "executed_code_cells": 53,
+  "external_network_blocked": true,
+  "api_key_absent": true,
+  "isolated_directory": true,
+  "application_imports": false,
+  "status": "passed",
+  "comparison": [
+    {
+      "Componente": "BM25",
+      "Métrica": "Recall@5",
+      "Resultado": 1.0
+    },
+    {
+      "Componente": "Semântico",
+      "Métrica": "Recall@5",
+      "Resultado": 1.0
+    },
+    {
+      "Componente": "Híbrido",
+      "Métrica": "Recall@5",
+      "Resultado": 1.0
+    },
+    {
+      "Componente": "NLI",
+      "Métrica": "Macro-F1",
+      "Resultado": 0.6666666666666666
+    },
+    {
+      "Componente": "Gemini (cache_real)",
+      "Métrica": "Citações válidas",
+      "Resultado": 1.0
+    }
+  ]
+}
