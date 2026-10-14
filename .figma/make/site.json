@@ -1,0 +1,12 @@
+{
+  "description": "Compare alegações de artigos científicos com a literatura recuperada no PubMed.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  },
+  "title": "ArtFact — Verificador de Artigos Científicos",
+  "language": "pt-BR"
+}

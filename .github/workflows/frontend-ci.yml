@@ -1,0 +1,25 @@
+name: Frontend CI
+on:
+  push:
+    branches: ["feature/artfact-indicadores-cientificos"]
+  pull_request:
+    branches: ["main"]
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
+      - name: Check TypeScript
+        run: npm run typecheck
+      - name: Build frontend
+        run: npm run build

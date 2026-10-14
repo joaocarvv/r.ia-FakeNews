@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "description": "Corpus pequeno para comparação operacional sem rótulos de relevância.",
+  "documents": [
+    {
+      "pmid": "33031652",
+      "pmcid": null,
+      "doi": "10.1056/NEJMoa2022926",
+      "source_url": "https://pubmed.ncbi.nlm.nih.gov/33031652/",
+      "section": "Resumo: resultados",
+      "text": "Death within 28 days occurred in 421 patients (27.0%) in the hydroxychloroquine group and in 790 (25.0%) in the usual-care group"
+    },
+    {
+      "pmid": "33859192",
+      "pmcid": null,
+      "doi": null,
+      "source_url": "https://pubmed.ncbi.nlm.nih.gov/33859192/",
+      "section": "Resumo: conclusão",
+      "text": "We found that treatment with hydroxychloroquine is associated with increased mortality in COVID-19 patients, and there is no benefit of chloroquine."
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "trial-comparator",
+      "claim": "Hydroxychloroquine compared with usual-care: death within 28 days."
+    },
+    {
+      "case_id": "chloroquine-benefit",
+      "claim": "Chloroquine provides a mortality benefit."
+    },
+    {
+      "case_id": "out-of-topic",
+      "claim": "O exercício melhora a função cardiovascular?"
+    }
+  ]
+}
