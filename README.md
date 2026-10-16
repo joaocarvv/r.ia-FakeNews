@@ -1,0 +1,270 @@
+# Fato ou Fake? — POC orientada a evidências
+
+O fluxo principal definido para o MVP está documentado em [`docs/fluxo-mvp.md`](docs/fluxo-mvp.md).
+
+Jupyter Notebook executável para verificar afirmações pelo cruzamento de fontes reais. O pipeline analisa a claim e agora suporta pesquisa federada em PubMed, OpenAlex e periódicos SciELO indexados pelo OpenAlex; em seguida, normaliza e deduplica documentos, cria chunks, executa busca híbrida, classifica as evidências e gera uma síntese com as fontes utilizadas.
+
+A aplicação não pede ao modelo que decida sozinho se algo é verdadeiro ou falso. O resultado descreve o conjunto recuperado como `EVIDENCE_SUPPORTS`, `EVIDENCE_AGAINST`, `INCONCLUSIVE` ou `CONFLICTING_EVIDENCE`.
+
+## Arquivos principais
+
+- `fato_ou_fake_poc.ipynb`: notebook completo e salvo com uma execução de exemplo.
+- `notebooks/17_validacao_orquestracao_multiartigo.ipynb`: validação do serviço que parte da alegação, processa múltiplos artigos e gera o relatório final.
+- `notebooks/18_validacao_api_http.ipynb`: validação reproduzível do contrato HTTP assíncrono para iniciar e consultar análises.
+- `notebooks/19_validacao_confiabilidade.ipynb`: benchmark inicial das regras de abstenção e exclusão de artigos retratados.
+- `notebooks/20_validacao_pesquisa_adversarial.ipynb`: validação controlada do pesquisador, crítico e árbitro determinístico com checagem de proveniência.
+- `notebooks/21_validacao_fontes_cientificas.ipynb`: auditoria ao vivo de acesso e papel das fontes científicas abertas, editoriais e manuais consideradas pelo grupo.
+- `notebooks/22_validacao_busca_federada.ipynb`: validação da normalização, deduplicação, proveniência e ranking federado entre PubMed, OpenAlex e SciELO via OpenAlex.
+- `notebooks/16_eda_pubmed.ipynb`: análise exploratória executada do corpus PubMed usado no estudo de caso.
+- `data/pubmed_cafe_cancer_prostata.csv`: snapshot dos 100 registros analisados na EDA.
+- `data/pubmed_cafe_cancer_prostata_metadata.json`: consulta, fonte, data e cobertura da coleta.
+- `docs/EDA_PubMed_Grupo08.docx`: relatório acadêmico da EDA com tabelas, medidas de dispersão e gráficos incorporados.
+- `build_notebook.py`: gerador reproduzível do notebook.
+- `.env.example`: modelo das variáveis de ambiente.
+- `requirements.txt`: dependências principais.
+- `requirements-live.txt`: dependências principais mais Crawl4AI.
+
+## Pré-requisitos
+
+- Python 3.11.
+- Git.
+- Recomendado: [uv](https://docs.astral.sh/uv/getting-started/installation/) para criar e gerenciar o ambiente Python.
+- Uma chave da API Gemini para usar a análise e a síntese por LLM.
+
+O notebook também funciona sem Gemini: nesse caso, usa um modelo NLI local e uma síntese extrativa. As fontes continuam sendo reais; o projeto não substitui falhas de API por dados simulados.
+
+## 1. Clonar e acessar a branch
+
+```powershell
+git clone https://github.com/joaocarvv/r.ia-FakeNews.git
+cd r.ia-FakeNews
+git switch fatofake
+```
+
+## 2. Criar o ambiente Python
+
+No Windows com PowerShell:
+
+```powershell
+uv venv .venv --python 3.11
+uv pip install --python .venv/Scripts/python.exe -r requirements.txt
+```
+
+No Linux ou macOS:
+
+```bash
+uv venv .venv --python 3.11
+uv pip install --python .venv/bin/python -r requirements.txt
+```
+
+Na primeira execução, o `sentence-transformers` baixa os modelos abertos usados nos embeddings e no fallback local. Esse download pode demorar alguns minutos.
+
+## 3. Criar a chave Gemini
+
+1. Abra a página de [chaves do Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Entre com sua conta Google e aceite os termos, se solicitado.
+3. Clique em **Create API key**.
+4. Copie a chave criada.
+
+Consulte também a [documentação oficial de chaves da Gemini API](https://ai.google.dev/gemini-api/docs/api-key). Nunca coloque a chave no notebook, no README ou no `.env.example`.
+
+## 4. Criar e preencher o `.env`
+
+Copie o arquivo de exemplo:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+No Linux ou macOS:
+
+```bash
+cp .env.example .env
+```
+
+Abra o `.env` e preencha pelo menos:
+
+```dotenv
+GEMINI_API_KEY=cole_sua_chave_aqui
+LLM_MODEL=gemini-flash-lite-latest
+```
+
+O `.env` está listado no `.gitignore` e não deve ser versionado.
+
+### Variáveis disponíveis
+
+| Variável | Obrigatória | Valor padrão | Finalidade |
+|---|---:|---|---|
+| `GEMINI_API_KEY` | Recomendada | vazio | Autentica a análise, classificação e síntese com Gemini. Sem ela, o notebook usa o fallback local. |
+| `LLM_MODEL` | Não | `gemini-flash-lite-latest` | Modelo Gemini usado pelo endpoint REST. Troque somente por um modelo disponível na sua conta. |
+| `EMBEDDING_MODEL` | Não | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Modelo local multilíngue usado na busca semântica. |
+| `TRANSLATION_MODEL` | Não | `Helsinki-NLP/opus-mt-ROMANCE-en` | Traduz localmente a alegação em português para ampliar a busca científica em inglês; não produz o veredito. |
+| `NCBI_API_KEY` | Não | vazio | Aumenta o limite da API do NCBI. A POC funciona sem essa chave. |
+| `NCBI_EMAIL` | Recomendada | vazio | Identifica o responsável pelas chamadas ao NCBI. Use um e-mail de contato válido. |
+| `OPENALEX_API_KEY` | Recomendada | vazio | Autentica a busca no OpenAlex; obtenha uma chave gratuita para limites mais estáveis. |
+| `SPRINGER_META_API_KEY` | Não | vazio | Habilita a busca de metadados da Springer Nature na auditoria de fontes. |
+| `SPRINGER_OPENACCESS_API_KEY` | Não | vazio | Habilita a busca de conteúdo aberto da Springer Nature na auditoria de fontes. |
+| `ELSEVIER_API_KEY` | Não | vazio | Habilita a busca na API ScienceDirect da Elsevier na auditoria de fontes. |
+| `MAX_SOURCES` | Não | `8` | Máximo de publicações recuperadas por claim. |
+| `CHUNK_WORDS` | Não | `60` | Tamanho aproximado de cada chunk em palavras. |
+| `CHUNK_OVERLAP` | Não | `12` | Sobreposição entre chunks consecutivos. Deve ser menor que `CHUNK_WORDS`. |
+| `TOP_K` | Não | `6` | Número máximo de trechos enviados à classificação. |
+| `HTTP_TIMEOUT` | Não | `20` | Timeout, em segundos, para APIs e páginas externas. |
+| `LLM_TIMEOUT` | Não | `120` | Timeout, em segundos, para uma chamada Gemini. |
+| `LLM_MAX_ATTEMPTS` | Não | `3` | Tentativas para erros temporários `429`, `5xx` e falhas de rede da Gemini. |
+| `LLM_RETRY_BACKOFF` | Não | `1` | Espera exponencial inicial, em segundos, entre tentativas da Gemini. |
+| `DOCUMENT_MAX_PAGES` | Não | `100` | Limite de páginas processadas localmente pelo LiteParse. |
+| `DOCUMENT_PARSE_TIMEOUT` | Não | `45` | Limite, em segundos, para interpretar um documento local. |
+| `WEB_URLS` | Não | vazio | URLs públicas adicionais, separadas por vírgula. Exige Crawl4AI. |
+
+Exemplo completo:
+
+```dotenv
+EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+TRANSLATION_MODEL=Helsinki-NLP/opus-mt-ROMANCE-en
+GEMINI_API_KEY=cole_sua_chave_aqui
+LLM_MODEL=gemini-flash-lite-latest
+NCBI_API_KEY=
+NCBI_EMAIL=seu-email@exemplo.com
+OPENALEX_API_KEY=
+SPRINGER_META_API_KEY=
+SPRINGER_OPENACCESS_API_KEY=
+ELSEVIER_API_KEY=
+MAX_SOURCES=8
+CHUNK_WORDS=60
+CHUNK_OVERLAP=12
+TOP_K=6
+HTTP_TIMEOUT=20
+LLM_TIMEOUT=120
+WEB_URLS=
+```
+
+## 5. Chave opcional do NCBI/PubMed
+
+O PubMed pode ser consultado sem chave. Para limites maiores:
+
+1. Crie ou acesse sua [conta NCBI](https://account.ncbi.nlm.nih.gov/).
+2. Abra **Account Settings**.
+3. Em **API Key Management**, selecione **Create an API Key**.
+4. Preencha `NCBI_API_KEY` no `.env`.
+
+A documentação das [E-utilities do NCBI](https://www.ncbi.nlm.nih.gov/books/NBK25497/#chapter2.API_Keys) explica os limites e recomenda informar `tool` e `email`. Nesta POC, a busca usa ESearch e EFetch da API oficial.
+
+## 6. Abrir e executar o notebook
+
+Pelo Jupyter Lab no Windows:
+
+```powershell
+.venv/Scripts/python.exe -m jupyter lab fato_ou_fake_poc.ipynb
+```
+
+No Linux ou macOS:
+
+```bash
+.venv/bin/python -m jupyter lab fato_ou_fake_poc.ipynb
+```
+
+No VS Code:
+
+1. Abra `fatofake.code-workspace`.
+2. Abra `fato_ou_fake_poc.ipynb`.
+3. Selecione o interpretador `.venv` como kernel.
+4. Use **Restart Kernel and Run All Cells**.
+
+Para executar e salvar todas as saídas pelo terminal:
+
+```powershell
+.venv/Scripts/python.exe -m jupyter nbconvert --to notebook --execute --inplace fato_ou_fake_poc.ipynb --ExecutePreprocessor.timeout=300
+```
+
+## 7. Usar páginas adicionais com Crawl4AI
+
+Essa etapa é opcional. Instale as dependências extras:
+
+```powershell
+uv pip install --python .venv/Scripts/python.exe -r requirements-live.txt
+.venv/Scripts/crawl4ai-setup.exe
+```
+
+Se o executável de setup não estiver disponível no Windows, use:
+
+```powershell
+.venv/Scripts/python.exe -m playwright install chromium
+```
+
+Depois informe somente URLs públicas e autorizadas, separadas por vírgula:
+
+```dotenv
+WEB_URLS=https://exemplo.org/pagina-a,https://exemplo.org/pagina-b
+```
+
+O adaptador acessa apenas essas URLs e verifica `robots.txt`. Consulte a [documentação oficial de instalação do Crawl4AI](https://docs.crawl4ai.com/basic/installation/).
+
+## 8. Uso no código
+
+Depois de executar as células de definição:
+
+```python
+resultado = verificar_claim("Tomar café causa câncer")
+apresentar_resultado(resultado)
+plot_evidence_map(resultado)
+```
+
+O retorno contém a claim, status, resumo, evidências, URLs, agregação, métricas, erros observados e os modelos usados.
+
+### Teste web com artigos
+
+Para abrir o protótipo que aceita link/DOI de artigo, PDF ou imagem:
+
+```bash
+.venv/bin/python run_acceptance_app.py
+```
+
+No Windows, use `.venv/Scripts/python.exe`. Depois, acesse
+`http://127.0.0.1:5000`. PDFs são convertidos localmente pelo LiteParse antes da
+extração das alegações; links do PubMed são resolvidos diretamente pelas APIs do
+NCBI. Com `GEMINI_API_KEY` configurada, a aplicação extrai a alegação principal,
+busca evidências independentes e valida se os trechos citados existem nos abstracts
+originais. A análise mede compatibilidade, nunca declara o artigo verdadeiro ou falso.
+Para links do PubMed, a recuperação combina busca temática e artigos relacionados
+do ELink. O índice de confiança apresentado mede cobertura da verificação — textos
+analisados, atualidade, citações e ramificação — e não a chance de o artigo estar correto.
+
+## 9. Solução de problemas
+
+### `401`, `403` ou chave inválida
+
+- Confirme que `GEMINI_API_KEY` está no `.env` da raiz do projeto.
+- Não use aspas nem espaços em torno da chave.
+- Gere uma nova chave no [Google AI Studio](https://aistudio.google.com/app/apikey) se a anterior foi revogada ou exposta.
+
+### `404` para o modelo Gemini
+
+O catálogo da Gemini API muda ao longo do tempo. Atualize `LLM_MODEL` no `.env` para um modelo Flash disponível na sua conta. O padrão atual do projeto é `gemini-flash-lite-latest`.
+
+### `429` ou `503` na Gemini API
+
+A cota ou a capacidade temporária pode ter sido atingida. A aplicação repete a
+chamada até `LLM_MAX_ATTEMPTS` vezes, com espera progressiva. Se todas falharem,
+ela informa indisponibilidade temporária sem confundir essa falha com ausência de
+alegação no artigo.
+
+### PDF sem texto suficiente
+
+O LiteParse trabalha localmente e usa OCR, mas documentos digitalizados, tabelas
+densas, fórmulas e gráficos ainda podem exigir um parser mais avançado. A aplicação
+interrompe a análise quando não há texto suficiente, em vez de fabricar conteúdo.
+
+### Kernel ou imports não encontrados
+
+Confirme que o notebook está usando o Python dentro de `.venv` e reinstale `requirements.txt` com o comando da seção 2.
+
+### Crawl4AI não abre páginas
+
+Execute o setup do Crawl4AI/Playwright e confirme que a página permite acesso automatizado. Paywalls, autenticação e bloqueios de crawler não são contornados.
+
+## Limites da POC
+
+Os resultados dependem da cobertura do PubMed e das páginas configuradas, da qualidade das consultas, da atualidade das fontes e da classificação automática. O `Evidence Score` é uma heurística sobre as evidências recuperadas, não uma probabilidade matemática de verdade. Toda conclusão relevante deve manter os trechos e URLs disponíveis para revisão humana.
+
+O benchmark da etapa 19 é uma regressão de segurança com casos controlados. Ele não mede acurácia clínica; essa avaliação exige um conjunto ouro de casos reais revisados por especialistas.

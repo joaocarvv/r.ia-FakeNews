@@ -1,0 +1,11 @@
+.venv/
+.env
+__pycache__/
+.ipynb_checkpoints/
+artifacts/
+.github/copilot-instructions.md
+.github/instructions/mermaid.instructions.md
+docs/EDA_PubMed_Grupo08.docx
+docs/EDA_PubMed_Grupo08.docx
+venv/
+.coverage

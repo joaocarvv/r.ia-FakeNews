@@ -1,0 +1,142 @@
+[
+  {
+    "case_id": "all_uncertain_support_signal",
+    "description": "Dois artigos têm apenas sinais abaixo dos limites de confiança.",
+    "expected_direction": "MIXED",
+    "expected_strength": "INSUFFICIENT",
+    "expected_conclusion": "INSUFFICIENT_EVIDENCE",
+    "safety_critical": true,
+    "articles": [
+      {
+        "pmid": "S001",
+        "relation": "UNCERTAIN",
+        "model_relation": "SUPPORTS",
+        "support": 0.59,
+        "contradiction": 0.20,
+        "neutral": 0.21,
+        "quality": "MODERATE"
+      },
+      {
+        "pmid": "S002",
+        "relation": "UNCERTAIN",
+        "model_relation": "SUPPORTS",
+        "support": 0.59,
+        "contradiction": 0.20,
+        "neutral": 0.21,
+        "quality": "MODERATE"
+      }
+    ]
+  },
+  {
+    "case_id": "one_confident_one_uncertain",
+    "description": "Somente um dos dois artigos possui evidência classificada.",
+    "expected_direction": "SUPPORTS",
+    "expected_strength": "INSUFFICIENT",
+    "expected_conclusion": "INSUFFICIENT_EVIDENCE",
+    "safety_critical": true,
+    "articles": [
+      {
+        "pmid": "S003",
+        "relation": "SUPPORTS",
+        "model_relation": "SUPPORTS",
+        "support": 0.80,
+        "contradiction": 0.10,
+        "neutral": 0.10,
+        "quality": "MODERATE"
+      },
+      {
+        "pmid": "S004",
+        "relation": "UNCERTAIN",
+        "model_relation": "SUPPORTS",
+        "support": 0.59,
+        "contradiction": 0.20,
+        "neutral": 0.21,
+        "quality": "MODERATE"
+      }
+    ]
+  },
+  {
+    "case_id": "two_confident_support",
+    "description": "Dois artigos de qualidade moderada apoiam a alegação com confiança.",
+    "expected_direction": "SUPPORTS",
+    "expected_strength": "MODERATE",
+    "expected_conclusion": "COMPATIBLE_WITH_EVIDENCE",
+    "safety_critical": false,
+    "articles": [
+      {
+        "pmid": "S005",
+        "relation": "SUPPORTS",
+        "model_relation": "SUPPORTS",
+        "support": 0.82,
+        "contradiction": 0.08,
+        "neutral": 0.10,
+        "quality": "MODERATE"
+      },
+      {
+        "pmid": "S006",
+        "relation": "SUPPORTS",
+        "model_relation": "SUPPORTS",
+        "support": 0.76,
+        "contradiction": 0.09,
+        "neutral": 0.15,
+        "quality": "MODERATE"
+      }
+    ]
+  },
+  {
+    "case_id": "confident_conflict",
+    "description": "Artigos confiantes apontam em direções opostas.",
+    "expected_direction": "MIXED",
+    "expected_strength": "LOW",
+    "expected_conclusion": "CONFLICTING_EVIDENCE",
+    "safety_critical": true,
+    "articles": [
+      {
+        "pmid": "S007",
+        "relation": "SUPPORTS",
+        "model_relation": "SUPPORTS",
+        "support": 0.82,
+        "contradiction": 0.08,
+        "neutral": 0.10,
+        "quality": "MODERATE"
+      },
+      {
+        "pmid": "S008",
+        "relation": "CONTRADICTS",
+        "model_relation": "CONTRADICTS",
+        "support": 0.08,
+        "contradiction": 0.82,
+        "neutral": 0.10,
+        "quality": "MODERATE"
+      }
+    ]
+  },
+  {
+    "case_id": "two_confident_neutral",
+    "description": "Dois artigos confiantes não estabelecem apoio nem contradição.",
+    "expected_direction": "NEUTRAL",
+    "expected_strength": "MODERATE",
+    "expected_conclusion": "INCONCLUSIVE",
+    "safety_critical": true,
+    "articles": [
+      {
+        "pmid": "S009",
+        "relation": "NEUTRAL",
+        "model_relation": "NEUTRAL",
+        "support": 0.12,
+        "contradiction": 0.08,
+        "neutral": 0.80,
+        "quality": "MODERATE"
+      },
+      {
+        "pmid": "S010",
+        "relation": "NEUTRAL",
+        "model_relation": "NEUTRAL",
+        "support": 0.15,
+        "contradiction": 0.10,
+        "neutral": 0.75,
+        "quality": "MODERATE"
+      }
+    ]
+  }
+]

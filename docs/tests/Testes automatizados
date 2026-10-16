@@ -1,0 +1,56 @@
+# Relatório de Testes de Qualidade (QA) - Artfact
+
+**Data:** 15/10/2026  
+**Projeto:** Artfact  
+**Área:** Qualidade de software e consistência científica  
+**Status:** Testes automatizados executados; auditoria científica em andamento.
+
+## 1. Objetivo
+
+Avaliar a estabilidade do sistema e verificar os mecanismos responsáveis pela classificação, validação e síntese de evidências científicas.
+
+## 2. Resultados dos testes
+
+- Testes automatizados aprovados: 148
+- Testes com falha: 0
+- Tempo de execução com cobertura: 3,82 segundos
+- Cobertura total de código: 85%
+- Instruções não cobertas: 508
+
+## 3. Módulos avaliados
+
+- Classificação de evidências: `evidence_classification.py`
+- Síntese de evidências: `evidence_synthesis.py`
+- Análise de evidências com Gemini: `gemini_evidence.py`
+- Validação da qualidade dos estudos: `quality_validation.py`
+
+## 4. Verificações já contempladas pelos testes
+
+Os testes existentes verificam, entre outros aspectos:
+
+- Classificação de evidências favoráveis, contrárias e neutras.
+- Tratamento de resultados incertos e conflitos entre estudos.
+- Validação de perfis de qualidade dos artigos.
+- Verificação de citações em relação ao texto de origem.
+- Tratamento de identificadores duplicados ou desconhecidos.
+- Tentativas de recuperação diante de indisponibilidade temporária.
+- Tratamento conservador de estudos retratados ou com informações insuficientes.
+
+## 5. Resultado da cobertura
+
+A cobertura geral foi de 85%. Os módulos com menor cobertura incluem `retrieval_preview.py` (64%) e `evidence_classification.py` (71%).
+
+Cobertura de código não comprova, por si só, a correção científica das conclusões produzidas pelo sistema.
+
+## 6. Pendências
+
+- Testar se a síntese permanece consistente quando a ordem dos artigos é alterada.
+- Avaliar casos-limite e entradas adversariais.
+- Investigar trechos relevantes ainda não cobertos por testes.
+- Continuar verificando se a força das conclusões respeita as limitações das evidências.
+
+## 7. Conclusão parcial
+
+Na execução registrada, os 148 testes automatizados passaram. A cobertura de código foi de 85%. Os resultados indicam que a suíte atual foi executada sem falhas, mas a auditoria de consistência científica permanece em andamento.
+
+**Próxima etapa:** implementar e executar testes adicionais de consistência da síntese científica.
