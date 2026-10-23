@@ -8,8 +8,6 @@
 - **Ketlyn Karen Silva de Morais** (Full-Stack: Front-End e Back-End)
 - **Victor Barbosa da Silva** (QA Tester / Quality Assurance)
 
-*(Nota: O desenvolvimento do núcleo de IA foi realizado majoritariamente por Vinícius e João Vitor; a elaboração da documentação foi realizada majoritariamente por Thayná e Keila; desenvolvimento Frontend desenvolvido majoritariamente por Karen).*
-
 **Repositório de Código:** [`https://github.com/joaocarvv/r.ia-FakeNews`](https://github.com/joaocarvv/r.ia-FakeNews)  
 **Branch de Referência Atual (v2.0):** [`refactor/pubmed-only-mvp`](https://github.com/joaocarvv/r.ia-FakeNews/tree/refactor/pubmed-only-mvp)
 
